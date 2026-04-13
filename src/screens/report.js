@@ -4,65 +4,80 @@ import { reportContent } from '../data/report.js';
 import { Typewriter } from '../utils/typewriter.js';
 import { delay } from '../utils/animation.js';
 
-const reportChatResponses = {
-  'Summarize the key findings': `Based on the multi-agent simulation (2,000 agents × 120 rounds), validated against Maybank, CoStar, and STB data:
+// Suggested questions that seed the chat — content comes from the LLM at runtime.
+const chatSuggestionQuestions = [
+  'Summarize the key findings',
+  'What are the main risks?',
+  'How does this compare to actual results?',
+  'Explain the methodology',
+];
 
-**Total Tourism Receipts: S$350M–S$450M (US$260M–US$375M)**
-- Accommodation: S$110–140M (CoStar: occupancy 79.1%, ADR +12.7%)
-- Aviation/Transport: S$65–85M (Changi: +20% arrivals, 5.73M pax)
-- F&B: S$55–70M (3–4x revenue near National Stadium)
-- Retail/Attractions: S$40–55M (Klook bookings +200%)
+// Strip HTML tags so the report context stays compact and LLM-friendly.
+function stripHtml(s) {
+  return String(s || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+}
 
-Key insight: 300K+ attendees, 70% from overseas (STB). Average incremental spending ~US$800 per visitor beyond ticket. GDP contribution: ~0.25 percentage points to Q1 2024 growth.`,
+// Build a compact text version of the report to use as LLM context.
+// We keep the abstract in full but trim each section body to ~600 chars
+// so the system prompt does not blow past the model's context window.
+function buildReportContext() {
+  const parts = [];
+  parts.push(`TITLE: ${reportContent.title}`);
+  if (reportContent.subtitle) parts.push(`SUBTITLE: ${reportContent.subtitle}`);
+  parts.push(`\nABSTRACT:\n${stripHtml(reportContent.abstract)}`);
+  parts.push(`\nSECTIONS:`);
+  for (const s of reportContent.sections) {
+    const body = stripHtml(s.body);
+    const trimmed = body.length > 600 ? body.slice(0, 600) + '…' : body;
+    parts.push(`\n[${s.num}] ${s.title}\n${trimmed}`);
+  }
+  if (reportContent.risks && reportContent.risks.length) {
+    parts.push(`\nRISK FACTORS:\n${reportContent.risks.map(r => '- ' + stripHtml(r)).join('\n')}`);
+  }
+  return parts.join('\n');
+}
 
-  'What are the main risks?': `Five primary risk vectors identified:
+const REPORT_CONTEXT = buildReportContext();
 
-1. **Tourist volume sensitivity** — elasticity 1.8x (most critical)
-2. **Travel restrictions** — Could reduce 70% overseas attendance share
-3. **Hotel pricing pressure** — elasticity 1.2x; ADR already peaked at S$438.36
-4. **Regional competition** — Exclusivity deal was key; without it, demand disperses
-5. **Weather/logistics** — Monsoon proximity, stadium capacity constraints
+// Conversation history for this chat session. Pushed/popped as the user
+// interacts; the full array is sent to /api/chat each turn so the LLM
+// remembers prior messages.
+const chatHistory = [];
 
-CoStar data shows only 3 days below 70% occupancy all month — demand was resilient. But the model is highly dependent on the "exclusive SE Asian stop" positioning.`,
-
-  'How does this compare to actual results?': `**Loka Projection vs Independently Reported Actuals:**
-
-| Metric | Loka Projection | Actual (Source) |
-|--------|----------------|-----------------|
-| Tourism Receipts | S$350–450M | US$260–375M (Maybank) |
-| Hotel Occupancy (avg) | 78–82% | 79.1% (CoStar/STR) |
-| Peak Occupancy | 90–94% | 92.7% (CoStar, Mar 2) |
-| ADR | S$340–380 | S$358.91 (CoStar) |
-| RevPAR | S$260–300 | S$284.03 (CoStar) |
-| Changi Arrivals Change | +18–22% | +20% (Changi Airport) |
-| Overseas Attendee Share | 65–75% | ~70% (STB) |
-
-Our projections fell within 3–5% of actual reported metrics. The accommodation forecasts were particularly accurate thanks to CoStar historical calibration.`,
-
-  'Explain the methodology': `**Three-layer quantitative framework:**
-
-1. **Input-Output Model** (Leontief)
-   - 67-sector Singapore economy matrix
-   - Captures inter-industry demand transmission
-   
-2. **CGE Model** (Dixon & Rimmer)
-   - 12-sector general equilibrium
-   - Solves for market-clearing prices, wages, employment
-   
-3. **Monte Carlo Simulation**
-   - n=10,000 iterations
-   - ±1σ parameter variation
-   - Generates confidence intervals, not point estimates
-
-Agent behavioral data feeds all three models simultaneously. Results are weighted and harmonized to produce the final projection.`,
-};
+async function callChatApi(userMessage) {
+  chatHistory.push({ role: 'user', content: userMessage });
+  const res = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      messages: chatHistory,
+      context: REPORT_CONTEXT,
+      system:
+        'You are Loka AI, an analyst embedded in the Loka research report. ' +
+        'Answer the user\'s questions using the REPORT CONTEXT below. ' +
+        'Cite specific numbers, sections, or findings whenever possible. ' +
+        'Keep answers under 250 words unless the user asks for more detail. ' +
+        'If the report does not contain the answer, say so plainly.',
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`chat api ${res.status}`);
+  }
+  const body = await res.json();
+  if (!body.success) {
+    throw new Error(body.error || 'chat api failed');
+  }
+  const reply = body.data.message;
+  chatHistory.push({ role: 'assistant', content: reply });
+  return reply;
+}
 
 export function createReport() {
   const el = document.createElement('div');
   el.className = 'screen report-screen';
   el.id = 'screen-report';
 
-  const chatSuggestions = Object.keys(reportChatResponses);
+  const chatSuggestions = chatSuggestionQuestions;
 
   el.innerHTML = `
     <div class="report-layout">
@@ -189,8 +204,8 @@ export function createReport() {
     setTimeout(() => { btn.textContent = 'Export PDF'; btn.disabled = false; }, 2000);
   });
 
-  // Chat functionality
-  function sendChat(question) {
+  // Chat functionality — calls real backend LLM (/api/chat) with conversation history.
+  async function sendChat(question) {
     const messagesEl = el.querySelector('#report-chat-messages');
 
     // User message
@@ -202,20 +217,18 @@ export function createReport() {
     messagesEl.appendChild(userMsg);
     messagesEl.scrollTop = messagesEl.scrollHeight;
 
-    const response = reportChatResponses[question] || `I've analyzed the report data regarding your question. Based on the simulation parameters (2,000 agents, 120 rounds, 10K Monte Carlo iterations), the relevant findings suggest further investigation into the specific metrics you're inquiring about. The confidence interval for this particular analysis is within the projected range of ±12%.`;
-
-    // Build thinking steps — using inline SVG icons (no emoji)
+    // Build thinking steps — animated while the LLM call is in-flight.
     const svgDoc = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
     const svgTable = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/></svg>';
     const svgCheck = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="m9 12 2 2 4-4"/></svg>';
     const svgRuler = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>';
     const svgPen = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
     const thinkingSteps = [
-      { icon: svgDoc, text: 'Scanning report sections & appendices...', duration: 700 },
-      { icon: svgTable, text: 'Retrieving relevant data tables & figures...', duration: 1000 },
-      { icon: svgCheck, text: 'Cross-validating with simulation logs (120 rounds)...', duration: 1100 },
-      { icon: svgRuler, text: 'Checking confidence intervals & sensitivity ranges...', duration: 800 },
-      { icon: svgPen, text: 'Composing response...', duration: 500 },
+      { icon: svgDoc, text: 'Scanning report sections & appendices...' },
+      { icon: svgTable, text: 'Retrieving relevant data tables & figures...' },
+      { icon: svgCheck, text: 'Cross-validating with simulation logs (120 rounds)...' },
+      { icon: svgRuler, text: 'Checking confidence intervals & sensitivity ranges...' },
+      { icon: svgPen, text: 'Composing response...' },
     ];
 
     // Create thinking container
@@ -239,46 +252,55 @@ export function createReport() {
 
     const stepsContainer = thinkingEl.querySelector('.chat-thinking-flow__steps');
 
-    // Reveal steps one by one
-    let totalDelay = 400;
-    thinkingSteps.forEach((step, idx) => {
-      setTimeout(() => {
+    // Reveal thinking steps with a steady cadence while waiting on the LLM.
+    // Steps stop revealing once the response arrives.
+    let cancelSteps = false;
+    (async () => {
+      for (let i = 0; i < thinkingSteps.length; i++) {
+        if (cancelSteps) break;
+        const step = thinkingSteps[i];
         const stepEl = document.createElement('div');
         stepEl.className = 'chat-thinking-flow__step';
         stepEl.innerHTML = `<span class="chat-thinking-flow__step-icon">${step.icon}</span><span class="chat-thinking-flow__step-text">${step.text}</span>`;
         stepsContainer.appendChild(stepEl);
         messagesEl.scrollTop = messagesEl.scrollHeight;
-
-        // Mark step as done after its duration
-        setTimeout(() => {
+        await delay(900);
+        if (!cancelSteps) {
           stepEl.classList.add('done');
           stepEl.querySelector('.chat-thinking-flow__step-text').textContent = step.text.replace('...', ' — done');
-        }, step.duration);
-      }, totalDelay);
-      totalDelay += step.duration + 300;
-    });
+        }
+      }
+    })();
 
-    // After all steps done, replace thinking with response
-    setTimeout(() => {
-      thinkingEl.remove();
+    // Real LLM call — pushes user msg + history to /api/chat
+    let response;
+    try {
+      response = await callChatApi(question);
+    } catch (err) {
+      response = `Sorry, I couldn't reach the analysis backend. (${err.message})`;
+    } finally {
+      cancelSteps = true;
+    }
 
-      const aiMsg = document.createElement('div');
-      aiMsg.className = 'report-chat__msg report-chat__msg--ai';
-      aiMsg.innerHTML = `
-        <div class="report-chat__msg-avatar">LK</div>
-        <div class="report-chat__msg-content">
-          <div class="report-chat__msg-name">Loka AI</div>
-          <div class="report-chat__msg-text"></div>
-        </div>
-      `;
-      messagesEl.appendChild(aiMsg);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+    // Replace thinking flow with the actual response, typewritten.
+    thinkingEl.remove();
 
-      const textEl = aiMsg.querySelector('.report-chat__msg-text');
-      textEl.style.whiteSpace = 'pre-wrap';
-      const tw = new Typewriter(textEl, { speed: 8, html: false });
-      tw.type(response).then(() => { messagesEl.scrollTop = messagesEl.scrollHeight; });
-    }, totalDelay + 500);
+    const aiMsg = document.createElement('div');
+    aiMsg.className = 'report-chat__msg report-chat__msg--ai';
+    aiMsg.innerHTML = `
+      <div class="report-chat__msg-avatar">LK</div>
+      <div class="report-chat__msg-content">
+        <div class="report-chat__msg-name">Loka AI</div>
+        <div class="report-chat__msg-text"></div>
+      </div>
+    `;
+    messagesEl.appendChild(aiMsg);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    const textEl = aiMsg.querySelector('.report-chat__msg-text');
+    textEl.style.whiteSpace = 'pre-wrap';
+    const tw = new Typewriter(textEl, { speed: 8, html: false });
+    tw.type(response).then(() => { messagesEl.scrollTop = messagesEl.scrollHeight; });
   }
 
   el.querySelectorAll('.report-chat__suggestion').forEach(btn => {
