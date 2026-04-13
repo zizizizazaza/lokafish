@@ -12,7 +12,7 @@
 // Both are surfaced via the status endpoint.
 
 /**
- * Kick off a new pipeline run.
+ * Kick off a new pipeline run with a JSON body (no file upload).
  * @param {object} opts
  * @param {string} opts.requirement  - prediction brief (required)
  * @param {string} [opts.docText]    - optional document body
@@ -35,6 +35,47 @@ export async function startPipeline({ requirement, docText = '', projectName = '
   const body = await res.json();
   if (!body.success) throw new Error(body.error || 'startPipeline failed');
   return body.data.run_id;
+}
+
+/**
+ * Kick off a new pipeline run with a file upload (multipart/form-data).
+ * The uploaded file is used as the Stage 1 ontology input document so
+ * the LLM has rich context to extract entities from.
+ *
+ * @param {object} opts
+ * @param {string} opts.requirement
+ * @param {File}   opts.file
+ * @param {string} [opts.projectName]
+ * @param {number} [opts.maxRounds=30]
+ * @returns {Promise<string>} run_id
+ */
+export async function startPipelineMultipart({ requirement, file, projectName = 'Untitled Analysis', maxRounds = 30 }) {
+  const form = new FormData();
+  form.append('requirement', requirement);
+  form.append('project_name', projectName);
+  form.append('max_rounds', String(maxRounds));
+  form.append('files', file);
+
+  const res = await fetch('/api/project/run', {
+    method: 'POST',
+    body: form,
+  });
+  if (!res.ok) throw new Error(`startPipelineMultipart ${res.status}`);
+  const body = await res.json();
+  if (!body.success) throw new Error(body.error || 'startPipelineMultipart failed');
+  return body.data.run_id;
+}
+
+/**
+ * Fetch the list of all projects on the server.
+ * @returns {Promise<Array<{project_id, created_at, size_bytes, has_report, title?}>>}
+ */
+export async function listProjects() {
+  const res = await fetch('/api/project/list');
+  if (!res.ok) throw new Error(`listProjects ${res.status}`);
+  const body = await res.json();
+  if (!body.success) throw new Error(body.error || 'listProjects failed');
+  return body.data || [];
 }
 
 /**

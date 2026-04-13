@@ -362,3 +362,71 @@ def project_report_md(project_id: str):
     if not md_path.exists():
         return jsonify({"success": False, "error": "no report yet"}), 404
     return send_file(md_path, mimetype='text/markdown', as_attachment=False)
+
+
+@project_bp.route('/list', methods=['GET'])
+def project_list():
+    """
+    Enumerate all projects that have been persisted to the uploads dir.
+
+    Returns the list sorted by most-recent first. Each entry contains just
+    enough metadata for a "recent projects" UI:
+        { project_id, created_at, size_kb, has_report, title?, requirement? }
+
+    Per-run status files (_run_*.status.json) are filtered out.
+    """
+    root = _uploads_dir()
+    if not root.exists():
+        return jsonify({"success": True, "data": []})
+
+    projects = []
+    for entry in root.iterdir():
+        # Skip the transient _run_<id>/ scratch dirs and status files
+        if not entry.is_dir() or entry.name.startswith("_"):
+            continue
+
+        md_path = entry / "05c_report.md"
+        proj_meta_path = entry / "01b_project.json"
+
+        title = None
+        requirement = None
+        if proj_meta_path.exists():
+            try:
+                meta = json.loads(proj_meta_path.read_text(encoding="utf-8"))
+                title = meta.get("name") or meta.get("project_name")
+                requirement = (
+                    meta.get("simulation_requirement")
+                    or meta.get("requirement")
+                )
+            except Exception:
+                pass
+
+        # Fallback: pull the first H1 from the report markdown as title
+        if not title and md_path.exists():
+            try:
+                md = md_path.read_text(encoding="utf-8")
+                first_line = md.lstrip("#").split("\n", 1)[0].strip()
+                if first_line:
+                    title = first_line[:80]
+            except Exception:
+                pass
+
+        try:
+            stat = entry.stat()
+            mtime = stat.st_mtime
+            size = sum(f.stat().st_size for f in entry.rglob("*") if f.is_file())
+        except Exception:
+            mtime = 0
+            size = 0
+
+        projects.append({
+            "project_id": entry.name,
+            "title": title or entry.name,
+            "requirement": (requirement or "")[:200] if requirement else None,
+            "created_at": mtime,
+            "size_kb": round(size / 1024, 1),
+            "has_report": md_path.exists(),
+        })
+
+    projects.sort(key=lambda p: p["created_at"], reverse=True)
+    return jsonify({"success": True, "data": projects})

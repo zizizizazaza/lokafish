@@ -8,6 +8,9 @@ import { fetchProjectData, adaptReportForFrontend } from '../lib/project_client.
 // createReport's `_loadProject(id)` hook is called later, we fetch the
 // project from the backend and swap the rendered content in place.
 let reportContent = staticReportContent;
+// The currently-loaded project id (null in demo mode) — used by the
+// Download Markdown button to build the correct URL.
+let currentProjectId = null;
 
 // Suggested questions that seed the chat — content comes from the LLM at runtime.
 const chatSuggestionQuestions = [
@@ -206,8 +209,8 @@ export function createReport() {
         </div>
 
         <div class="report-actions anim-fade-up">
-          <button class="btn btn--primary" id="btn-export-pdf">Export PDF</button>
-          <button class="btn btn--secondary">Share Report</button>
+          <button class="btn btn--primary" id="btn-download-md">Download Markdown</button>
+          <button class="btn btn--secondary" id="btn-export-pdf">Export PDF</button>
           <button class="btn btn--secondary" id="btn-restart">New Analysis</button>
         </div>
 
@@ -255,13 +258,58 @@ export function createReport() {
     });
   });
 
-  // Export
+  // Export PDF (placeholder — stays as the cosmetic button it's always been)
   el.querySelector('#btn-export-pdf').addEventListener('click', () => {
     const btn = el.querySelector('#btn-export-pdf');
     btn.textContent = '✓ Exported';
     btn.disabled = true;
     setTimeout(() => { btn.textContent = 'Export PDF'; btn.disabled = false; }, 2000);
   });
+
+  // Download Markdown — extracted into a function so _loadProject can
+  // re-bind it after the paper div is rebuilt from new reportContent.
+  async function handleDownloadMd() {
+    const btn = el.querySelector('#btn-download-md');
+    if (!btn) return;
+    const origText = btn.textContent;
+    btn.textContent = 'Downloading...';
+    btn.disabled = true;
+    try {
+      let blob;
+      let filename;
+      if (currentProjectId) {
+        const res = await fetch(`/api/project/${encodeURIComponent(currentProjectId)}/report_md`);
+        if (!res.ok) throw new Error(`${res.status}`);
+        blob = await res.blob();
+        filename = `loka-${currentProjectId}.md`;
+      } else {
+        // Demo-mode fallback: synthesize markdown from reportContent
+        const lines = [];
+        lines.push(`# ${reportContent.title || 'Loka Report'}`);
+        if (reportContent.subtitle) lines.push(`\n_${reportContent.subtitle}_`);
+        lines.push(`\n## Abstract\n${htmlToText(reportContent.abstract || '')}`);
+        for (const s of (reportContent.sections || [])) {
+          lines.push(`\n## ${s.num}. ${s.title}\n${htmlToText(s.body || '')}`);
+        }
+        blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+        filename = 'loka-demo-report.md';
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      btn.textContent = '✓ Downloaded';
+      setTimeout(() => { btn.textContent = origText; btn.disabled = false; }, 2000);
+    } catch (err) {
+      btn.textContent = `Failed: ${err.message}`;
+      setTimeout(() => { btn.textContent = origText; btn.disabled = false; }, 3000);
+    }
+  }
+  el.querySelector('#btn-download-md').addEventListener('click', handleDownloadMd);
 
   // Chat functionality — calls real backend LLM (/api/chat) with conversation history.
   async function sendChat(question) {
@@ -409,6 +457,7 @@ export function createReport() {
    */
   el._loadProject = async (projectId) => {
     if (!projectId) return;
+    currentProjectId = projectId;
     const paperEl = el.querySelector('#report-paper');
     const loadingBanner = `
       <div style="padding:40px;text-align:center;color:var(--text-secondary);">
@@ -427,6 +476,10 @@ export function createReport() {
 
       // Re-render the paper div from the new reportContent
       paperEl.innerHTML = buildPaperHtml(reportContent);
+
+      // Re-bind the Download Markdown button (innerHTML wiped the handler)
+      const dlBtn = paperEl.querySelector('#btn-download-md');
+      if (dlBtn) dlBtn.addEventListener('click', handleDownloadMd);
 
       // Re-bind TOC clicks (innerHTML wiped the handlers)
       paperEl.querySelectorAll('.report-toc__item').forEach(item => {
@@ -468,6 +521,14 @@ export function createReport() {
   };
 
   return el;
+}
+
+/** Strip HTML tags for plain-text markdown fallback. */
+function htmlToText(html) {
+  if (!html) return '';
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  return (tmp.textContent || tmp.innerText || '').trim();
 }
 
 /**
@@ -517,6 +578,7 @@ function buildPaperHtml(content) {
     `).join('')}
 
     <div class="report-actions anim-fade-up">
+      <button class="btn btn--primary" id="btn-download-md">Download Markdown</button>
       <button class="btn btn--secondary" id="btn-restart">New Analysis</button>
     </div>
   `;
