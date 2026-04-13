@@ -14,8 +14,101 @@ import { fetchProjectData } from '../lib/project_client.js';
 let agentCategories = staticAgentCategories;
 let behaviorChain = staticBehaviorChain;
 let kgLogMessages = staticKgLogMessages;
+// When a real project is loaded, this holds the raw Zep graph (nodes/edges)
+// so the KG canvas can render user data instead of the procedural mock.
+let customGraphData = null;
 
-// Generate 1000+ KG nodes procedurally
+/**
+ * Convert a raw Zep graph_data payload ({nodes, edges}) into the shape the
+ * KG canvas animation loop expects. Positions are seeded by hashing node
+ * names so the layout is stable across reloads.
+ */
+function buildKgFromCustomGraph(graph, w, h) {
+  const rawNodes = graph?.nodes || [];
+  const rawEdges = graph?.edges || [];
+  if (!rawNodes.length) return null;
+
+  const pickColor = (labels) => {
+    for (const l of labels || []) {
+      if (entityTypes[l]) return entityTypes[l];
+    }
+    return entityTypes.Entity || '#0F7B6C';
+  };
+
+  // Deterministic pseudo-random from a string, for stable node positions
+  const hashSeed = (s) => {
+    let h = 0;
+    for (let i = 0; i < String(s).length; i++) {
+      h = ((h << 5) - h + String(s).charCodeAt(i)) | 0;
+    }
+    return Math.abs(h);
+  };
+  const seeded = (s, salt = 0) => {
+    const h = hashSeed(String(s) + ':' + salt);
+    return (h % 10000) / 10000;
+  };
+
+  // Cap at 200 to keep the canvas snappy; take the most "important" first
+  // (those with more connections = higher degree).
+  const degree = new Map();
+  for (const e of rawEdges) {
+    const s = e.source_uuid || e.source || e.from;
+    const t = e.target_uuid || e.target || e.to;
+    if (s) degree.set(s, (degree.get(s) || 0) + 1);
+    if (t) degree.set(t, (degree.get(t) || 0) + 1);
+  }
+  const sortedNodes = [...rawNodes].sort((a, b) => {
+    const da = degree.get(a.uuid) || 0;
+    const db = degree.get(b.uuid) || 0;
+    return db - da;
+  });
+  const kept = sortedNodes.slice(0, 200);
+  const keptIds = new Set(kept.map(n => n.uuid));
+
+  const nodes = kept.map((n, i) => {
+    const deg = degree.get(n.uuid) || 0;
+    const isCore = i < 10;
+    const size = isCore ? 14 - i * 0.5 : Math.max(3, Math.min(8, 3 + deg * 0.6));
+    // Clustered layout: core nodes near center, periphery around rings
+    let x, y;
+    if (isCore) {
+      const angle = (i / 10) * Math.PI * 2;
+      x = w * 0.5 + Math.cos(angle) * w * 0.18;
+      y = h * 0.5 + Math.sin(angle) * h * 0.22;
+    } else {
+      const angle = seeded(n.uuid, 1) * Math.PI * 2;
+      const r = 0.25 + seeded(n.uuid, 2) * 0.35;
+      x = w * 0.5 + Math.cos(angle) * w * r;
+      y = h * 0.5 + Math.sin(angle) * h * r;
+    }
+    return {
+      id: n.uuid,
+      label: (n.name || 'Unknown').slice(0, 18),
+      size,
+      color: pickColor(n.labels || n.label_list),
+      type: (n.labels || [])[0] || 'Entity',
+      x: Math.max(14, Math.min(w - 14, x)),
+      y: Math.max(14, Math.min(h - 14, y)),
+      vx: 0, vy: 0,
+      summary: n.summary || '',
+      realEntity: true,
+    };
+  });
+
+  const edges = [];
+  for (const e of rawEdges) {
+    const s = e.source_uuid || e.source || e.from;
+    const t = e.target_uuid || e.target || e.to;
+    if (keptIds.has(s) && keptIds.has(t)) {
+      edges.push([s, t]);
+    }
+  }
+
+  return { nodes, edges };
+}
+
+// Generate 1000+ KG nodes procedurally — used as a fallback when the
+// backend hasn't provided a real graph_data payload.
 function generateDenseKG(w, h) {
   const coreNodes = [
     { id: 'ts', label: 'Taylor Swift', size: 18, color: '#E03E3E', type: 'Person', fx: 0.5, fy: 0.35 },
@@ -304,10 +397,9 @@ export function createAgents(onComplete) {
   };
 
   /**
-   * Real-mode hook — fetch the project from /api/project/<id>/data, swap the
-   * agent categories / behavior chain / kg log to the backend payload, and
-   * rebuild the cards in place. The procedural KG canvas is kept (it's a
-   * pretty world-building animation, not a literal data viz of THIS project).
+   * Real-mode hook — fetch the project from /api/project/<id>/data, swap
+   * the agent data + KG graph to the backend payload, and rebuild
+   * everything (cards, behavior chain, KG canvas) in place.
    */
   el._loadProject = async (projectId) => {
     if (!projectId) return;
@@ -323,8 +415,14 @@ export function createAgents(onComplete) {
       if (Array.isArray(a.kgLogMessages) && a.kgLogMessages.length) {
         kgLogMessages = a.kgLogMessages;
       }
+      // Real Zep graph — used by setupInteractiveKG via buildKgFromCustomGraph
+      if (a.graphData && Array.isArray(a.graphData.nodes) && a.graphData.nodes.length) {
+        customGraphData = a.graphData;
+      }
+
       rebuildAgentCards();
       rebuildBehaviorChain();
+
       // Make sure all cards/bars are visible even if _runAnimation hasn't fired
       el.querySelectorAll('.agent-card').forEach(c => {
         c.style.opacity = '1';
@@ -333,6 +431,16 @@ export function createAgents(onComplete) {
       el.querySelectorAll('.agent-card__stat-fill').forEach(fill => {
         fill.style.width = fill.dataset.width + '%';
       });
+
+      // Re-run the KG canvas with the new graph data. Wait a tick for the
+      // DOM to settle in case the screen is being mounted concurrently.
+      if (customGraphData && el.querySelector('#kg-container')) {
+        try {
+          await setupInteractiveKG(el, modal);
+        } catch (err) {
+          console.warn('KG re-render failed:', err);
+        }
+      }
     } catch (err) {
       console.warn('agents._loadProject failed:', err);
     }
@@ -353,7 +461,13 @@ async function setupInteractiveKG(el, modal) {
   canvas.style.height = h + 'px';
   const ctx = canvas.getContext('2d');
 
-  const { nodes, edges } = generateDenseKG(w, h);
+  // Prefer the real Zep graph if a project has been loaded; otherwise
+  // fall back to the procedural 1000-node mock so the screen still looks
+  // alive in demo mode.
+  const fromCustom = customGraphData ? buildKgFromCustomGraph(customGraphData, w, h) : null;
+  const { nodes, edges } = fromCustom && fromCustom.nodes.length
+    ? fromCustom
+    : generateDenseKG(w, h);
   const nodeMap = {};
   nodes.forEach(n => nodeMap[n.id] = n);
 

@@ -1,0 +1,24 @@
+# Loka frontend — Vite dev server (for self-hosted use, dev mode is fine)
+# A production build would use `npm run build` + a static server, but the
+# UX of a hot-reloadable dev server matches how this tool is meant to be
+# used (clone, configure, hack on it).
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install deps first so docker cache works for source changes
+COPY package.json package-lock.json* ./
+RUN npm install
+
+# Copy the rest of the frontend
+COPY index.html vite.config.js ./
+COPY src/ ./src/
+COPY public/ ./public/
+
+EXPOSE 5173
+
+# --host 0.0.0.0 binds to all interfaces so the dev server is reachable
+# from outside the container. The vite proxy in vite.config.js forwards
+# /api/* to the backend service (named `backend` inside the compose net).
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

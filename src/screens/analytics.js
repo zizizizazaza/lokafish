@@ -16,6 +16,15 @@ let heatmapData = staticHeatmapData;
 let gdpChartData = staticGdpChartData;
 let industryData = staticIndustryData;
 let flowData = staticFlowData;
+// Sentiment data has its own shape (positive/neutral/negative ratios per
+// time bucket). When null, drawSentimentChart falls back to its baked-in
+// Taylor calibrated curve.
+let sentimentDataOverride = null;
+
+// Per-district overrides that come from the backend heatmap aggregator.
+// Keyed by district label (case-insensitive). When a Leaflet hotspot's
+// name matches a key, its impact/density values get replaced.
+let leafletDistrictOverrides = new Map();
 
 export function createAnalytics(onComplete) {
   const el = document.createElement('div');
@@ -128,6 +137,23 @@ export function createAnalytics(onComplete) {
     ];
 
     hotspots.forEach(spot => {
+      // If the backend heatmap aggregator produced a value for this
+      // district, override the cosmetic stats. The lookup is fuzzy on
+      // both the canonical name and a few common aliases.
+      const lookupKeys = [spot.name, spot.name.split(' ')[0]].map(s => s.toLowerCase());
+      let override = null;
+      for (const k of lookupKeys) {
+        if (leafletDistrictOverrides.has(k)) {
+          override = leafletDistrictOverrides.get(k);
+          break;
+        }
+      }
+      if (override) {
+        spot.impact = override.value || spot.impact;
+        spot.density = override.intensity != null ? override.intensity : spot.density;
+        spot.agents = override.mention_count != null ? override.mention_count : spot.agents;
+      }
+
       // Heatmap circle
       const circle = L.circle([spot.lat, spot.lng], {
         radius: spot.radius,
@@ -186,7 +212,21 @@ export function createAnalytics(onComplete) {
     try {
       const data = await fetchProjectData(projectId);
       const a = data.analytics || {};
-      if (a.heatmap) heatmapData = a.heatmap;
+
+      if (a.heatmap) {
+        heatmapData = a.heatmap;
+        // Build the district override lookup keyed by lowercased name.
+        // The Leaflet hotspots have slightly different casing/wording so
+        // we index by both the full label and the first word.
+        leafletDistrictOverrides = new Map();
+        for (const h of (a.heatmap.hotspots || [])) {
+          if (!h || h.mention_count === 0) continue;
+          const label = (h.label || '').toLowerCase();
+          if (label) leafletDistrictOverrides.set(label, h);
+          const first = label.split(' ')[0];
+          if (first && first !== label) leafletDistrictOverrides.set(first, h);
+        }
+      }
       if (a.gdp && Array.isArray(a.gdp.withConcert) && a.gdp.withConcert.length) {
         gdpChartData = a.gdp;
       }
@@ -196,12 +236,39 @@ export function createAnalytics(onComplete) {
       if (a.flow && Array.isArray(a.flow.sources) && a.flow.sources.length) {
         flowData = a.flow;
       }
+      // Convert the backend sentiment timeline into the shape the chart
+      // wants: {label, positive, neutral, negative} ratios.
+      if (a.sentiment && Array.isArray(a.sentiment.timeline) && a.sentiment.timeline.length) {
+        const tl = a.sentiment.timeline;
+        // Bucket into ~9 points to match the chart's W-4..W+4 layout.
+        const buckets = 9;
+        const bucketSize = Math.max(1, Math.ceil(tl.length / buckets));
+        const points = [];
+        for (let b = 0; b < buckets; b++) {
+          const slice = tl.slice(b * bucketSize, (b + 1) * bucketSize);
+          if (!slice.length) break;
+          let pos = 0, neg = 0, total = 0;
+          for (const t of slice) {
+            pos += t.pos || 0;
+            neg += t.neg || 0;
+            total += t.total || 0;
+          }
+          const positive = total ? Math.min(1, pos / total) : 0;
+          const negative = total ? Math.min(1, neg / total) : 0;
+          const neutral = Math.max(0, 1 - positive - negative);
+          const label = b === Math.floor(buckets / 2) ? 'Concert' : `R${slice[0].round}`;
+          points.push({ label, positive, neutral, negative });
+        }
+        if (points.length) sentimentDataOverride = points;
+      }
+
       // Re-render the canvases that read from the mutable refs.
-      // Wrap in try/catch because these touch DOM elements that might not
-      // be ready if _loadProject is called before the screen is mounted.
       try { drawGDPChart(el); } catch (e) { console.warn('redraw GDP failed', e); }
       try { drawIndustryBars(el); } catch (e) { console.warn('redraw industry failed', e); }
       try { drawVisitorFlow(el); } catch (e) { console.warn('redraw flow failed', e); }
+      try { drawSentimentChart(el); } catch (e) { console.warn('redraw sentiment failed', e); }
+      // Note: Leaflet map updates take effect on the NEXT setupLeafletMap call,
+      // which happens when _runAnimation runs (after navigating to this screen).
     } catch (err) {
       console.warn('analytics._loadProject failed:', err);
     }
@@ -558,17 +625,21 @@ function drawSentimentChart(el) {
   const cw = w - pad.left - pad.right;
   const ch = h - pad.top - pad.bottom;
 
-  const sentimentData = [
-    { label: 'W-4', positive: 0.35, neutral: 0.55, negative: 0.10 },
-    { label: 'W-3', positive: 0.42, neutral: 0.48, negative: 0.10 },
-    { label: 'W-2', positive: 0.58, neutral: 0.35, negative: 0.07 },
-    { label: 'W-1', positive: 0.72, neutral: 0.23, negative: 0.05 },
-    { label: 'Event', positive: 0.88, neutral: 0.10, negative: 0.02 },
-    { label: 'W+1', positive: 0.75, neutral: 0.20, negative: 0.05 },
-    { label: 'W+2', positive: 0.60, neutral: 0.32, negative: 0.08 },
-    { label: 'W+3', positive: 0.48, neutral: 0.42, negative: 0.10 },
-    { label: 'W+4', positive: 0.40, neutral: 0.48, negative: 0.12 },
-  ];
+  // Use real backend data if a project is loaded; otherwise fall back to
+  // the calibrated Taylor curve.
+  const sentimentData = sentimentDataOverride && sentimentDataOverride.length
+    ? sentimentDataOverride
+    : [
+        { label: 'W-4', positive: 0.35, neutral: 0.55, negative: 0.10 },
+        { label: 'W-3', positive: 0.42, neutral: 0.48, negative: 0.10 },
+        { label: 'W-2', positive: 0.58, neutral: 0.35, negative: 0.07 },
+        { label: 'W-1', positive: 0.72, neutral: 0.23, negative: 0.05 },
+        { label: 'Event', positive: 0.88, neutral: 0.10, negative: 0.02 },
+        { label: 'W+1', positive: 0.75, neutral: 0.20, negative: 0.05 },
+        { label: 'W+2', positive: 0.60, neutral: 0.32, negative: 0.08 },
+        { label: 'W+3', positive: 0.48, neutral: 0.42, negative: 0.10 },
+        { label: 'W+4', positive: 0.40, neutral: 0.48, negative: 0.12 },
+      ];
 
   const getX = (i) => pad.left + (cw / (sentimentData.length - 1)) * i;
 

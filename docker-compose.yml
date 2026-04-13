@@ -1,0 +1,47 @@
+# Loka — self-hosted full stack
+#
+# Quickstart:
+#   1. cp .env.example .env
+#   2. fill in LLM_API_KEY + ZEP_API_KEY in .env
+#   3. docker compose up
+#   4. open http://localhost:5173
+#
+# The backend writes per-project artifacts to ./backend/uploads/projects
+# (bind-mounted as a volume), so user data survives container restarts.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: loka-backend
+    env_file:
+      - .env
+    environment:
+      FLASK_HOST: 0.0.0.0
+      FLASK_PORT: "5001"
+    ports:
+      - "5001:5001"
+    volumes:
+      # Persist project results across restarts
+      - ./backend/uploads:/app/backend/uploads
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: loka-frontend
+    environment:
+      # Tell vite to proxy /api/* to the backend service over the
+      # docker-compose internal network (service name = hostname).
+      VITE_BACKEND_URL: http://backend:5001
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
