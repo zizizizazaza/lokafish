@@ -1,7 +1,6 @@
 // Report — Two-column: academic paper (left) + AI chat (right)
 
 import { reportContent } from '../data/report.js';
-import { Typewriter } from '../utils/typewriter.js';
 import { delay } from '../utils/animation.js';
 
 // Suggested questions that seed the chat — content comes from the LLM at runtime.
@@ -40,36 +39,90 @@ function buildReportContext() {
 const REPORT_CONTEXT = buildReportContext();
 
 // Conversation history for this chat session. Pushed/popped as the user
-// interacts; the full array is sent to /api/chat each turn so the LLM
-// remembers prior messages.
+// interacts; the full array is sent to /api/chat/stream each turn so the
+// LLM remembers prior messages.
 const chatHistory = [];
 
-async function callChatApi(userMessage) {
+const SYSTEM_PROMPT =
+  'You are Loka AI, an analyst embedded in the Loka research report. ' +
+  "Answer the user's questions using the REPORT CONTEXT below. " +
+  'Cite specific numbers, sections, or findings whenever possible. ' +
+  'Keep answers under 250 words unless the user asks for more detail. ' +
+  'If the report does not contain the answer, say so plainly.';
+
+/**
+ * Stream a chat response from /api/chat/stream and call onDelta(text)
+ * for every text fragment. Returns a promise that resolves to the full
+ * concatenated reply when the stream finishes.
+ *
+ * The user's message is appended to chatHistory before sending; the
+ * assistant reply is appended on success.
+ */
+async function streamChatApi(userMessage, { onFirstDelta, onDelta }) {
   chatHistory.push({ role: 'user', content: userMessage });
-  const res = await fetch('/api/chat', {
+
+  const res = await fetch('/api/chat/stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       messages: chatHistory,
       context: REPORT_CONTEXT,
-      system:
-        'You are Loka AI, an analyst embedded in the Loka research report. ' +
-        'Answer the user\'s questions using the REPORT CONTEXT below. ' +
-        'Cite specific numbers, sections, or findings whenever possible. ' +
-        'Keep answers under 250 words unless the user asks for more detail. ' +
-        'If the report does not contain the answer, say so plainly.',
+      system: SYSTEM_PROMPT,
     }),
   });
-  if (!res.ok) {
-    throw new Error(`chat api ${res.status}`);
+  if (!res.ok || !res.body) {
+    throw new Error(`chat stream ${res.status}`);
   }
-  const body = await res.json();
-  if (!body.success) {
-    throw new Error(body.error || 'chat api failed');
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buf = '';
+  let full = '';
+  let firstDeltaSeen = false;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+
+    // SSE events are separated by a blank line. Process each complete event.
+    let sep;
+    while ((sep = buf.indexOf('\n\n')) !== -1) {
+      const eventBlock = buf.slice(0, sep);
+      buf = buf.slice(sep + 2);
+
+      // Each line within may start with "data: ". Concat data lines.
+      const dataLines = eventBlock
+        .split('\n')
+        .filter((l) => l.startsWith('data:'))
+        .map((l) => l.slice(5).trimStart());
+      if (!dataLines.length) continue;
+      const payload = dataLines.join('\n');
+      let parsed;
+      try {
+        parsed = JSON.parse(payload);
+      } catch {
+        continue;
+      }
+      if (parsed.error) throw new Error(parsed.error);
+      if (parsed.done) {
+        if (full) chatHistory.push({ role: 'assistant', content: full });
+        return full;
+      }
+      if (parsed.delta) {
+        if (!firstDeltaSeen) {
+          firstDeltaSeen = true;
+          onFirstDelta && onFirstDelta();
+        }
+        full += parsed.delta;
+        onDelta && onDelta(parsed.delta);
+      }
+    }
   }
-  const reply = body.data.message;
-  chatHistory.push({ role: 'assistant', content: reply });
-  return reply;
+
+  // Stream ended without an explicit done marker — still commit history.
+  if (full) chatHistory.push({ role: 'assistant', content: full });
+  return full;
 }
 
 export function createReport() {
@@ -252,8 +305,8 @@ export function createReport() {
 
     const stepsContainer = thinkingEl.querySelector('.chat-thinking-flow__steps');
 
-    // Reveal thinking steps with a steady cadence while waiting on the LLM.
-    // Steps stop revealing once the response arrives.
+    // Reveal thinking steps with a steady cadence until the first token
+    // arrives from the LLM. Then the thinking element gets replaced.
     let cancelSteps = false;
     (async () => {
       for (let i = 0; i < thinkingSteps.length; i++) {
@@ -264,7 +317,7 @@ export function createReport() {
         stepEl.innerHTML = `<span class="chat-thinking-flow__step-icon">${step.icon}</span><span class="chat-thinking-flow__step-text">${step.text}</span>`;
         stepsContainer.appendChild(stepEl);
         messagesEl.scrollTop = messagesEl.scrollHeight;
-        await delay(900);
+        await delay(700);
         if (!cancelSteps) {
           stepEl.classList.add('done');
           stepEl.querySelector('.chat-thinking-flow__step-text').textContent = step.text.replace('...', ' — done');
@@ -272,35 +325,51 @@ export function createReport() {
       }
     })();
 
-    // Real LLM call — pushes user msg + history to /api/chat
-    let response;
-    try {
-      response = await callChatApi(question);
-    } catch (err) {
-      response = `Sorry, I couldn't reach the analysis backend. (${err.message})`;
-    } finally {
+    // The streaming AI message bubble is created lazily on the first delta.
+    let aiMsg = null;
+    let textEl = null;
+
+    const onFirstDelta = () => {
       cancelSteps = true;
+      thinkingEl.remove();
+
+      aiMsg = document.createElement('div');
+      aiMsg.className = 'report-chat__msg report-chat__msg--ai';
+      aiMsg.innerHTML = `
+        <div class="report-chat__msg-avatar">LK</div>
+        <div class="report-chat__msg-content">
+          <div class="report-chat__msg-name">Loka AI</div>
+          <div class="report-chat__msg-text"></div>
+        </div>
+      `;
+      messagesEl.appendChild(aiMsg);
+      textEl = aiMsg.querySelector('.report-chat__msg-text');
+      textEl.style.whiteSpace = 'pre-wrap';
+    };
+
+    const onDelta = (delta) => {
+      if (!textEl) return;
+      textEl.append(delta);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    };
+
+    try {
+      await streamChatApi(question, { onFirstDelta, onDelta });
+    } catch (err) {
+      cancelSteps = true;
+      if (thinkingEl.parentNode) thinkingEl.remove();
+      const errMsg = document.createElement('div');
+      errMsg.className = 'report-chat__msg report-chat__msg--ai';
+      errMsg.innerHTML = `
+        <div class="report-chat__msg-avatar">LK</div>
+        <div class="report-chat__msg-content">
+          <div class="report-chat__msg-name">Loka AI</div>
+          <div class="report-chat__msg-text" style="color:#c33;">Sorry, I couldn't reach the analysis backend. (${err.message})</div>
+        </div>
+      `;
+      messagesEl.appendChild(errMsg);
     }
-
-    // Replace thinking flow with the actual response, typewritten.
-    thinkingEl.remove();
-
-    const aiMsg = document.createElement('div');
-    aiMsg.className = 'report-chat__msg report-chat__msg--ai';
-    aiMsg.innerHTML = `
-      <div class="report-chat__msg-avatar">LK</div>
-      <div class="report-chat__msg-content">
-        <div class="report-chat__msg-name">Loka AI</div>
-        <div class="report-chat__msg-text"></div>
-      </div>
-    `;
-    messagesEl.appendChild(aiMsg);
     messagesEl.scrollTop = messagesEl.scrollHeight;
-
-    const textEl = aiMsg.querySelector('.report-chat__msg-text');
-    textEl.style.whiteSpace = 'pre-wrap';
-    const tw = new Typewriter(textEl, { speed: 8, html: false });
-    tw.type(response).then(() => { messagesEl.scrollTop = messagesEl.scrollHeight; });
   }
 
   el.querySelectorAll('.report-chat__suggestion').forEach(btn => {
