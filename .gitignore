@@ -1,0 +1,57 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ---------- Backend ----------
+backend/.venv/
+backend/venv/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+
+# Backend runtime artifacts (generated per project / simulation)
+backend/app/uploads/projects/
+backend/app/uploads/simulations/
+backend/app/uploads/reports/
+backend/app/uploads/*.db
+backend/logs/
+backend/*.log
+
+# ---------- Snapshots ----------
+# By default we DO commit captured snapshots so the demo is self-contained.
+# If snapshots get too big, uncomment to ignore:
+# public/snapshots/
+
+# ---------- Secrets ----------
+.env
+.env.local
+.env.*.local
+*.secret
+secrets/
+
+# OS
+Thumbs.db
