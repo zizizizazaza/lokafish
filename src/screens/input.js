@@ -172,6 +172,7 @@ export function createInput(onSubmit) {
             <div id="progress-bar" style="height:100%;width:0%;background:var(--accent);transition:width 400ms ease;"></div>
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;font-size:11px;">
+            <span class="progress-stage" data-stage="expansion">0. Stakeholders</span>
             <span class="progress-stage" data-stage="ontology">1. Ontology</span>
             <span class="progress-stage" data-stage="graph">2. Graph</span>
             <span class="progress-stage" data-stage="entities">3. Entities</span>
@@ -334,7 +335,7 @@ export function createInput(onSubmit) {
   const runBtn = el.querySelector('#btn-run-simulation');
 
   function markStage(activeStage) {
-    const order = ['ontology', 'graph', 'entities', 'simulation_prepare', 'simulation_run', 'report'];
+    const order = ['expansion', 'ontology', 'graph', 'entities', 'simulation_prepare', 'simulation_run', 'report'];
     const activeIdx = order.indexOf(activeStage);
     el.querySelectorAll('.progress-stage').forEach(s => {
       const idx = order.indexOf(s.dataset.stage);

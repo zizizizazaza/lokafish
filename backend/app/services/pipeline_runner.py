@@ -40,8 +40,9 @@ class PipelineResult:
 # Each stage is a slice of the 0..100 progress bar. The callback maps the
 # stage's internal 0..100 progress into the global range below.
 STAGE_RANGES = {
-    "ontology": (0, 10),
-    "graph": (10, 30),
+    "expansion": (0, 5),
+    "ontology": (5, 12),
+    "graph": (12, 30),
     "entities": (30, 35),
     "simulation_prepare": (35, 50),
     "simulation_run": (50, 90),
@@ -119,6 +120,50 @@ def run_full_pipeline(
         progress_callback(stage, _stage_progress(stage, local_pct), msg)
 
     try:
+        # ------- Stage 0: Stakeholder expansion -------
+        # Expand the user's short requirement (and any uploaded doc) into
+        # a rich stakeholder map markdown so Stage 1 has far more entities
+        # to extract. The original doc is preserved for reference; Stage 1
+        # reads the expanded version instead.
+        emit("expansion", 0, "Expanding stakeholder map with LLM...")
+        try:
+            from . import stakeholder_expander
+            original_text = ""
+            try:
+                original_text = doc_path.read_text(encoding="utf-8")
+            except Exception:
+                pass
+
+            expanded_md = stakeholder_expander.expand_requirement(
+                requirement=requirement,
+                extra_context=original_text,
+            )
+            # Save the expansion as an artifact AND use it as the new
+            # ontology input document. We rename the original so it's
+            # preserved for debugging.
+            original_backup = output_dir / "_input_original.md"
+            try:
+                if doc_path.exists():
+                    doc_path.rename(original_backup)
+            except Exception:
+                pass
+
+            expanded_path = output_dir / "_00_stakeholders.md"
+            expanded_path.write_text(expanded_md, encoding="utf-8")
+            sess._save("_00_stakeholders_meta.json", {
+                "char_count": len(expanded_md),
+                "line_count": len(expanded_md.splitlines()),
+                "bullet_count": expanded_md.count("\n- "),
+            })
+            # From here on, Stage 1 reads the expanded document.
+            doc_path = expanded_path
+            emit("expansion", 100, f"Stakeholder map: {expanded_md.count('- ')} bullets")
+        except Exception as e:
+            # Expansion is a best-effort pre-step. If it fails, fall
+            # through to Stage 1 with the original document.
+            sess._log(f"expansion failed, falling back to original doc: {e}")
+            emit("expansion", 100, f"Expansion skipped ({e})")
+
         # ------- Stage 1: Ontology -------
         emit("ontology", 0, "Generating ontology from input document...")
         sess._log("ontology: start")
