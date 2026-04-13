@@ -1,8 +1,19 @@
 // Agents screen — Dense KG (1000+ nodes), draggable, clickable agent cards
 
-import { agentCategories, behaviorChain, entityTypes, kgLogMessages } from '../data/agents.js';
+import {
+  agentCategories as staticAgentCategories,
+  behaviorChain as staticBehaviorChain,
+  entityTypes,
+  kgLogMessages as staticKgLogMessages,
+} from '../data/agents.js';
 import { createAgentModal, showAgentDetail, showNodeDetail } from '../components/agent-modal.js';
 import { delay, staggerReveal, formatNumber } from '../utils/animation.js';
+import { fetchProjectData } from '../lib/project_client.js';
+
+// Mutable refs — _loadProject swaps these to the real backend payload.
+let agentCategories = staticAgentCategories;
+let behaviorChain = staticBehaviorChain;
+let kgLogMessages = staticKgLogMessages;
 
 // Generate 1000+ KG nodes procedurally
 function generateDenseKG(w, h) {
@@ -157,59 +168,70 @@ export function createAgents(onComplete) {
     </div>
   `;
 
-  // Build agent cards — ensure visible class is set immediately for non-animated display
-  const gridEl = el.querySelector('#agent-grid');
-  agentCategories.forEach(cat => {
-    cat.agents.forEach(agent => {
-      const card = document.createElement('div');
-      card.className = 'agent-card';
-      card.style.cursor = 'pointer';
-      const avatarContent = agent.avatar.startsWith('http')
-        ? `<img src="${agent.avatar}" alt="${agent.name}" style="width:100%;height:100%;border-radius:inherit;" />`
-        : agent.avatar;
-      card.innerHTML = `
-        <div class="agent-card__header">
-          <div class="agent-card__avatar" style="background: ${cat.bgColor}">${avatarContent}</div>
-          <div>
-            <div class="agent-card__name">${agent.name}</div>
-            <div class="agent-card__role">${agent.role}</div>
+  // Build (or rebuild) the agent cards from the current `agentCategories`.
+  // Extracted so _loadProject can re-render with new data after fetching.
+  function rebuildAgentCards() {
+    const gridEl = el.querySelector('#agent-grid');
+    if (!gridEl) return;
+    gridEl.innerHTML = '';
+    agentCategories.forEach(cat => {
+      (cat.agents || []).forEach(agent => {
+        const card = document.createElement('div');
+        card.className = 'agent-card';
+        card.style.cursor = 'pointer';
+        const avatarContent = agent.avatar && agent.avatar.startsWith('http')
+          ? `<img src="${agent.avatar}" alt="${agent.name}" style="width:100%;height:100%;border-radius:inherit;" />`
+          : (agent.avatar || agent.name?.[0] || '?');
+        card.innerHTML = `
+          <div class="agent-card__header">
+            <div class="agent-card__avatar" style="background: ${cat.bgColor}">${avatarContent}</div>
+            <div>
+              <div class="agent-card__name">${agent.name}</div>
+              <div class="agent-card__role">${agent.role}</div>
+            </div>
           </div>
-        </div>
-        <div class="agent-card__stats">
-          <div class="agent-card__stat-row">
-            <span>Econ. Weight</span>
-            <span class="mono">${(agent.influence * 100).toFixed(0)}%</span>
+          <div class="agent-card__stats">
+            <div class="agent-card__stat-row">
+              <span>Econ. Weight</span>
+              <span class="mono">${((agent.influence || 0) * 100).toFixed(0)}%</span>
+            </div>
+            <div class="agent-card__stat-bar">
+              <div class="agent-card__stat-fill" data-width="${(agent.influence || 0) * 100}" style="background: ${cat.color}"></div>
+            </div>
+            <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px;">
+              ${(agent.traits || []).map(t => `<span class="badge badge--blue" style="font-size: 9px; padding: 2px 5px;">${t}</span>`).join('')}
+            </div>
           </div>
-          <div class="agent-card__stat-bar">
-            <div class="agent-card__stat-fill" data-width="${agent.influence * 100}" style="background: ${cat.color}"></div>
-          </div>
-          <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px;">
-            ${agent.traits.map(t => `<span class="badge badge--blue" style="font-size: 9px; padding: 2px 5px;">${t}</span>`).join('')}
-          </div>
-        </div>
-      `;
-      card.addEventListener('click', () => showAgentDetail(modal, agent, cat));
-      gridEl.appendChild(card);
+        `;
+        card.addEventListener('click', () => showAgentDetail(modal, agent, cat));
+        gridEl.appendChild(card);
+      });
     });
-  });
+  }
 
-  // Behavior chain
-  const chainEl = el.querySelector('#behavior-chain');
-  behaviorChain.forEach((node, i) => {
-    if (i > 0) {
-      const arrow = document.createElement('div');
-      arrow.className = 'behavior-flow__arrow';
-      arrow.textContent = '→';
-      chainEl.appendChild(arrow);
-    }
-    const nodeEl = document.createElement('div');
-    nodeEl.className = 'behavior-flow__node';
-    nodeEl.innerHTML = `
-      <div class="behavior-flow__node-label">${node.label}</div>
-      <div class="behavior-flow__node-value">${node.value}</div>
-    `;
-    chainEl.appendChild(nodeEl);
-  });
+  function rebuildBehaviorChain() {
+    const chainEl = el.querySelector('#behavior-chain');
+    if (!chainEl) return;
+    chainEl.innerHTML = '';
+    (behaviorChain || []).forEach((node, i) => {
+      if (i > 0) {
+        const arrow = document.createElement('div');
+        arrow.className = 'behavior-flow__arrow';
+        arrow.textContent = '→';
+        chainEl.appendChild(arrow);
+      }
+      const nodeEl = document.createElement('div');
+      nodeEl.className = 'behavior-flow__node';
+      nodeEl.innerHTML = `
+        <div class="behavior-flow__node-label">${node.label}</div>
+        <div class="behavior-flow__node-value">${node.value}</div>
+      `;
+      chainEl.appendChild(nodeEl);
+    });
+  }
+
+  rebuildAgentCards();
+  rebuildBehaviorChain();
 
   el.querySelector('#btn-start-sim').addEventListener('click', onComplete);
 
@@ -279,6 +301,41 @@ export function createAgents(onComplete) {
     const cta = el.querySelector('#agents-complete');
     cta.style.opacity = '1';
     cta.style.transition = 'opacity 0.3s';
+  };
+
+  /**
+   * Real-mode hook — fetch the project from /api/project/<id>/data, swap the
+   * agent categories / behavior chain / kg log to the backend payload, and
+   * rebuild the cards in place. The procedural KG canvas is kept (it's a
+   * pretty world-building animation, not a literal data viz of THIS project).
+   */
+  el._loadProject = async (projectId) => {
+    if (!projectId) return;
+    try {
+      const data = await fetchProjectData(projectId);
+      const a = data.agents || {};
+      if (Array.isArray(a.agentCategories) && a.agentCategories.length) {
+        agentCategories = a.agentCategories;
+      }
+      if (Array.isArray(a.behaviorChain) && a.behaviorChain.length) {
+        behaviorChain = a.behaviorChain;
+      }
+      if (Array.isArray(a.kgLogMessages) && a.kgLogMessages.length) {
+        kgLogMessages = a.kgLogMessages;
+      }
+      rebuildAgentCards();
+      rebuildBehaviorChain();
+      // Make sure all cards/bars are visible even if _runAnimation hasn't fired
+      el.querySelectorAll('.agent-card').forEach(c => {
+        c.style.opacity = '1';
+        c.style.transform = 'translateY(0)';
+      });
+      el.querySelectorAll('.agent-card__stat-fill').forEach(fill => {
+        fill.style.width = fill.dataset.width + '%';
+      });
+    } catch (err) {
+      console.warn('agents._loadProject failed:', err);
+    }
   };
 
   return el;

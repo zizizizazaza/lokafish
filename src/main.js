@@ -94,25 +94,39 @@ function init() {
   }, 100);
 
   // Real-mode input screen dispatches this event after pipeline completes.
-  // Jump straight to the report screen (skipping agents/simulation/analytics)
-  // and let the report screen pick up the ?project=xxx hash to fetch real data.
-  window.addEventListener('loka:navigate-to-report', (e) => {
+  // Load the project's data into ALL data-driven screens so the user can
+  // walk through agents → simulation → analytics → report and see THEIR
+  // data on every screen, not just the report.
+  function loadProjectIntoAllScreens(projectId) {
+    if (!projectId) return;
     screens.forEach(s => s._animated = false);
-    // Tell the report screen it needs to re-mount against the new project
-    if (report._loadProject) {
-      report._loadProject(e.detail && e.detail.projectId);
-    }
-    goToScreen(5);
+    // Fire-and-forget — each screen fetches independently so they can fail
+    // in isolation without breaking the others.
+    if (agents._loadProject)     agents._loadProject(projectId);
+    if (simulation._loadProject) simulation._loadProject(projectId);
+    if (analytics._loadProject)  analytics._loadProject(projectId);
+    if (report._loadProject)     report._loadProject(projectId);
+  }
+
+  window.addEventListener('loka:navigate-to-report', (e) => {
+    const projectId = e.detail && e.detail.projectId;
+    loadProjectIntoAllScreens(projectId);
+    // Start the user at the agents screen so they walk through the full
+    // visualization, instead of jumping straight to the report.
+    goToScreen(2);
   });
 
-  // If the page loads with #report?project=xxx already in the URL (e.g. user
-  // hit refresh), wait for the report screen to initialize and load it.
-  if (window.location.hash.startsWith('#report')) {
+  // If the page loads with #report?project=xxx (or any screen?project=xxx)
+  // already in the URL, hydrate everything and jump to that screen.
+  if (window.location.hash) {
+    const hashScreens = { '#agents': 2, '#simulation': 3, '#analytics': 4, '#report': 5 };
+    const screenKey = Object.keys(hashScreens).find(k => window.location.hash.startsWith(k));
     const m = window.location.hash.match(/project=([^&]+)/);
     if (m && m[1]) {
+      const pid = decodeURIComponent(m[1]);
       setTimeout(() => {
-        if (report._loadProject) report._loadProject(decodeURIComponent(m[1]));
-        goToScreen(5);
+        loadProjectIntoAllScreens(pid);
+        goToScreen(hashScreens[screenKey] ?? 5);
       }, 150);
     }
   }

@@ -1,8 +1,20 @@
 // Screen 4: World Simulation — Loka
 
-import { simulationPosts, chatResponses, metricsTimeline, metricsBaseline } from '../data/simulation.js';
+import {
+  simulationPosts as staticSimulationPosts,
+  chatResponses as staticChatResponses,
+  metricsTimeline as staticMetricsTimeline,
+  metricsBaseline as staticMetricsBaseline,
+} from '../data/simulation.js';
 import { Typewriter } from '../utils/typewriter.js';
 import { delay } from '../utils/animation.js';
+import { fetchProjectData } from '../lib/project_client.js';
+
+// Mutable refs — _loadProject swaps these to backend data.
+let simulationPosts = staticSimulationPosts;
+let chatResponses = staticChatResponses;
+let metricsTimeline = staticMetricsTimeline;
+let metricsBaseline = staticMetricsBaseline;
 
 export function createSimulation(onComplete) {
   const el = document.createElement('div');
@@ -164,6 +176,45 @@ export function createSimulation(onComplete) {
   });
   el.querySelector('#btn-skip-sim').addEventListener('click', onComplete);
 
+  function rebuildChatSuggestions() {
+    const sugEl = el.querySelector('#chat-suggestions');
+    if (!sugEl) return;
+    sugEl.innerHTML = Object.keys(chatResponses)
+      .map(s => `<button class="chat-suggestion">${s}</button>`)
+      .join('');
+    sugEl.querySelectorAll('.chat-suggestion').forEach(btn => {
+      btn.addEventListener('click', () => { sendChat(btn.textContent); btn.remove(); });
+    });
+  }
+
+  /**
+   * Real-mode hook — fetch the project's simulation payload from the
+   * backend and replace the static Taylor data. We do NOT auto-replay
+   * here; the next call to _runAnimation will use the new data.
+   */
+  el._loadProject = async (projectId) => {
+    if (!projectId) return;
+    try {
+      const data = await fetchProjectData(projectId);
+      const s = data.simulation || {};
+      if (Array.isArray(s.simulationPosts) && s.simulationPosts.length) {
+        simulationPosts = s.simulationPosts;
+      }
+      if (Array.isArray(s.metricsTimeline) && s.metricsTimeline.length) {
+        metricsTimeline = s.metricsTimeline;
+      }
+      if (s.metricsBaseline && typeof s.metricsBaseline === 'object') {
+        metricsBaseline = s.metricsBaseline;
+      }
+      if (s.chatResponses && typeof s.chatResponses === 'object') {
+        chatResponses = s.chatResponses;
+        rebuildChatSuggestions();
+      }
+    } catch (err) {
+      console.warn('simulation._loadProject failed:', err);
+    }
+  };
+
   el._runAnimation = async () => {
     const feedEl = el.querySelector('#sim-feed');
     const roundEl = el.querySelector('#round-counter');
@@ -175,6 +226,26 @@ export function createSimulation(onComplete) {
       const roundNum = Math.round(((i + 1) / simulationPosts.length) * 120);
       roundEl.textContent = roundNum;
 
+      // Defensive: if the backend returned no metrics (e.g. empty action stream),
+      // skip metric updates rather than crash on undefined.
+      if (!metricsTimeline || metricsTimeline.length === 0) {
+        const postEl = document.createElement('div');
+        postEl.className = 'sim-post';
+        const avatarContent2 = post.avatar && post.avatar.startsWith('http')
+          ? `<img src="${post.avatar}" alt="${post.handle}" style="width:100%;height:100%;border-radius:50%;" />`
+          : (post.avatar || '?');
+        postEl.innerHTML = `
+          <div class="sim-post__avatar">${avatarContent2}</div>
+          <div class="sim-post__content">
+            <div class="sim-post__handle">${post.handle} <span>${post.username || ''} · ${post.time}</span></div>
+            <div class="sim-post__text">${post.text}</div>
+          </div>
+        `;
+        feedEl.appendChild(postEl);
+        feedEl.scrollTop = feedEl.scrollHeight;
+        await delay(1800);
+        continue;
+      }
       const metricIdx = Math.min(Math.floor((i / simulationPosts.length) * metricsTimeline.length), metricsTimeline.length - 1);
       const m = metricsTimeline[metricIdx];
       el.querySelector('#metric-gdp').textContent = `S$${m.gdp[0]}–${m.gdp[1]}M`;

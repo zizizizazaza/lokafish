@@ -1,9 +1,21 @@
 // Analytics — Real Singapore map with Leaflet + interactive charts
 
-import { heatmapData, gdpChartData, industryData, flowData } from '../data/analytics.js';
+import {
+  heatmapData as staticHeatmapData,
+  gdpChartData as staticGdpChartData,
+  industryData as staticIndustryData,
+  flowData as staticFlowData,
+} from '../data/analytics.js';
 import { singaporeDistricts, landmarks } from '../components/singapore-map.js';
 import { entityTypes } from '../data/agents.js';
 import { delay } from '../utils/animation.js';
+import { fetchProjectData } from '../lib/project_client.js';
+
+// Mutable refs — _loadProject swaps these to backend payloads.
+let heatmapData = staticHeatmapData;
+let gdpChartData = staticGdpChartData;
+let industryData = staticIndustryData;
+let flowData = staticFlowData;
 
 export function createAnalytics(onComplete) {
   const el = document.createElement('div');
@@ -162,6 +174,37 @@ export function createAnalytics(onComplete) {
 
     // Resize fix
     setTimeout(() => map.invalidateSize(), 300);
+  };
+
+  /**
+   * Real-mode hook — fetch project analytics from backend, swap mutable
+   * data refs, and re-run the chart draws. Sentiment + map stay static
+   * (M2 limitation; M3 will wire those too).
+   */
+  el._loadProject = async (projectId) => {
+    if (!projectId) return;
+    try {
+      const data = await fetchProjectData(projectId);
+      const a = data.analytics || {};
+      if (a.heatmap) heatmapData = a.heatmap;
+      if (a.gdp && Array.isArray(a.gdp.withConcert) && a.gdp.withConcert.length) {
+        gdpChartData = a.gdp;
+      }
+      if (Array.isArray(a.industry) && a.industry.length) {
+        industryData = a.industry;
+      }
+      if (a.flow && Array.isArray(a.flow.sources) && a.flow.sources.length) {
+        flowData = a.flow;
+      }
+      // Re-render the canvases that read from the mutable refs.
+      // Wrap in try/catch because these touch DOM elements that might not
+      // be ready if _loadProject is called before the screen is mounted.
+      try { drawGDPChart(el); } catch (e) { console.warn('redraw GDP failed', e); }
+      try { drawIndustryBars(el); } catch (e) { console.warn('redraw industry failed', e); }
+      try { drawVisitorFlow(el); } catch (e) { console.warn('redraw flow failed', e); }
+    } catch (err) {
+      console.warn('analytics._loadProject failed:', err);
+    }
   };
 
   el._runAnimation = async () => {

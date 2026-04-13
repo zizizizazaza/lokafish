@@ -17,11 +17,11 @@ import threading
 import time
 import uuid
 from pathlib import Path
-
 from flask import jsonify, request, send_file
 
 from . import project_bp
 from ..services.pipeline_runner import run_full_pipeline
+from ..services import chart_aggregator, data_adapter
 from ..utils.logger import get_logger
 
 logger = get_logger('mirofish.project')
@@ -244,12 +244,21 @@ def project_data(project_id: str):
     """
     Fetch the assembled result bundle for a completed project.
 
-    Reads the snapshot JSON files from uploads/projects/<id>/ and returns
-    a frontend-ready structure. For M1 this only includes the report data;
-    M2 will expand to cover agents / simulation / analytics.
+    Reads the snapshot JSON files from uploads/projects/<id>/, runs them
+    through the chart_aggregator + data_adapter services, and returns a
+    fully frontend-ready bundle keyed by screen:
+
+        {
+            project_id, requirement,
+            agents:     { entityTypes, agentCategories, behaviorChain, kgLogMessages, graphData },
+            simulation: { simulationPosts, metricsTimeline, metricsBaseline, chatResponses },
+            analytics:  { heatmap, gdp, industry, flow, sentiment },
+            report:     { title, abstract, sections, references, risks, ... },
+            raw:        { ... pointers to file names if the frontend needs originals }
+        }
     """
     d = _project_dir(project_id)
-    if not any(d.iterdir()):
+    if not d.exists() or not any(d.iterdir()):
         return jsonify({"success": False, "error": "project has no data yet"}), 404
 
     def load_json(name: str):
@@ -261,21 +270,87 @@ def project_data(project_id: str):
         except Exception:
             return None
 
-    report = load_json("05b_report.json") or {}
+    def load_actions_jsonl() -> list:
+        p = d / "04e_actions.jsonl"
+        if not p.exists():
+            return []
+        actions = []
+        with open(p, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        actions.append(json.loads(line))
+                    except Exception:
+                        continue
+        return actions
+
+    entities = load_json("02_entities.json")
+    graph_data = load_json("02b_graph_data.json")
+    profiles = load_json("03d_profiles.json")
+    actions = load_actions_jsonl()
+
+    # Fall back to actions.json if the JSONL is missing
+    if not actions:
+        fallback = load_json("04c_actions.json") or {}
+        if isinstance(fallback, dict):
+            actions = (
+                fallback.get("all_actions")
+                or fallback.get("actions")
+                or fallback.get("data")
+                or []
+            )
+        elif isinstance(fallback, list):
+            actions = fallback
+
     md_path = d / "05c_report.md"
-    report_md = md_path.read_text(encoding="utf-8") if md_path.exists() else None
+    report_md = md_path.read_text(encoding="utf-8") if md_path.exists() else ""
+
+    project_meta = load_json("01b_project.json") or {}
+    requirement = (
+        project_meta.get("simulation_requirement")
+        or project_meta.get("requirement")
+        or ""
+    )
+    captured_at = project_meta.get("created_at") or ""
+    sim_id = project_meta.get("simulation_id") or ""
+
+    meta = {
+        "project_id": project_id,
+        "captured_at": captured_at,
+        "simulation_id": sim_id,
+    }
+
+    # Run all the adaptations
+    agents_payload = data_adapter.build_agents_payload(
+        entities=entities,
+        graph_data=graph_data,
+        profiles=profiles,
+        actions=actions,
+        requirement=requirement,
+    )
+    simulation_payload = data_adapter.build_simulation_payload(
+        actions=actions,
+        profiles=profiles,
+        report_md=report_md,
+    )
+    analytics_payload = chart_aggregator.aggregate_all(actions)
+    report_payload = data_adapter.build_report_payload(
+        report_md=report_md,
+        requirement=requirement,
+        meta=meta,
+    )
 
     return jsonify({
         "success": True,
         "data": {
             "project_id": project_id,
-            "report": report,
+            "requirement": requirement,
+            "agents": agents_payload,
+            "simulation": simulation_payload,
+            "analytics": analytics_payload,
+            "report": report_payload,
             "report_markdown": report_md,
-            # Placeholders for M2
-            "entities": load_json("02_entities.json"),
-            "graph": load_json("02b_graph_data.json"),
-            "profiles": load_json("03d_profiles.json"),
-            "actions": None,  # TODO M2: read 04e_actions.jsonl
         }
     })
 

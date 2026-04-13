@@ -312,11 +312,12 @@ export function createInput(onSubmit) {
         if (status.stage) markStage(status.stage);
       });
 
-      // Navigate to report with the real project_id
+      // Pipeline complete — start the walkthrough at the agents screen
+      // so the user sees their entities, simulation, analytics and report
+      // in sequence, not just the final report.
       const projectId = final.project_id;
       if (!projectId) throw new Error('pipeline completed without project_id');
-      window.location.hash = `#report?project=${encodeURIComponent(projectId)}`;
-      // Dispatch an event so main.js can swap to the report screen
+      window.location.hash = `#agents?project=${encodeURIComponent(projectId)}`;
       window.dispatchEvent(new CustomEvent('loka:navigate-to-report', {
         detail: { projectId },
       }));
