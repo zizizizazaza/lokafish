@@ -307,20 +307,30 @@ def step_generate_report(sess: CaptureSession, sim_id: str) -> Dict:
         report_id = bd["report_id"]
         sess._log(f"  report already exists: {report_id}")
     else:
+        # The kickoff response includes a pre-allocated report_id, but the
+        # report itself is still being generated in a background thread.
+        # We must poll the task until it completes before trying to GET the
+        # report — otherwise ReportManager.get_report() returns None -> 404.
+        task_id = bd.get("task_id")
+        if not task_id:
+            raise RuntimeError(f"report kickoff missing task_id: {bd}")
         report_id = bd.get("report_id")
-        if not report_id:
-            # poll task
-            task_id = bd["task_id"]
-            while True:
-                ts = sess.post_json("/api/report/generate/status", {"task_id": task_id})
-                td = ts["data"]
-                if td.get("status") == "completed":
-                    report_id = td.get("report_id") or td.get("metadata", {}).get("report_id")
-                    break
-                if td.get("status") == "failed":
-                    raise RuntimeError(f"report task failed: {td}")
-                sess._log(f"  report progress: {td.get('progress', 0)}% — {td.get('message', '')}")
-                time.sleep(sess.poll_interval)
+        while True:
+            ts = sess.post_json("/api/report/generate/status", {"task_id": task_id})
+            td = ts["data"]
+            status = td.get("status")
+            if status == "completed":
+                report_id = (
+                    td.get("report_id")
+                    or td.get("metadata", {}).get("report_id")
+                    or (td.get("result") or {}).get("report_id")
+                    or report_id
+                )
+                break
+            if status == "failed":
+                raise RuntimeError(f"report task failed: {td}")
+            sess._log(f"  report progress: {td.get('progress', 0)}% — {td.get('message', '')}")
+            time.sleep(sess.poll_interval)
 
     # Pull final report
     final = sess.get(f"/api/report/{report_id}")
