@@ -1,4 +1,12 @@
 // Input Screen — with Advanced Configuration Panel
+//
+// Two submission modes:
+//   demo   → jump to pre-baked Taylor Swift snapshot (original behavior)
+//   real   → POST /api/project/run, poll, navigate to ?project=<id>
+//
+// onSubmit is the legacy demo-mode callback (invoked with no args).
+
+import { startPipeline, pollPipeline } from '../lib/project_client.js';
 
 export function createInput(onSubmit) {
   const el = document.createElement('div');
@@ -139,8 +147,38 @@ export function createInput(onSubmit) {
           </div>
         </div>
 
+        <div class="input-screen__mode-row" style="display:flex;gap:12px;align-items:center;padding:14px 0 4px;border-top:1px solid var(--border);margin-top:18px;">
+          <span style="font-size:12px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.08em;">Mode:</span>
+          <button type="button" class="btn btn--sm input-mode-btn active" data-mode="demo" id="mode-demo">Demo (instant)</button>
+          <button type="button" class="btn btn--sm input-mode-btn" data-mode="real" id="mode-real">Real analysis (10–30 min)</button>
+        </div>
+        <div class="input-screen__mode-desc" id="mode-desc" style="font-size:12px;color:var(--text-secondary);margin-top:6px;min-height:16px;">
+          Uses the pre-computed Taylor Swift snapshot. No API calls, no wait.
+        </div>
+
         <div class="input-screen__actions">
           <button class="btn btn--primary btn--lg" id="btn-run-simulation">Run World Simulation →</button>
+        </div>
+
+        <!-- Real-mode progress overlay -->
+        <div class="pipeline-progress" id="pipeline-progress" style="display:none;margin-top:24px;padding:20px;border:1px solid var(--border);border-radius:10px;background:var(--bg-subtle);">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+            <div style="font-weight:600;font-size:14px;">Running pipeline</div>
+            <div class="mono" id="progress-pct" style="font-size:13px;color:var(--accent);">0%</div>
+          </div>
+          <div style="height:6px;background:var(--border);border-radius:4px;overflow:hidden;margin-bottom:14px;">
+            <div id="progress-bar" style="height:100%;width:0%;background:var(--accent);transition:width 400ms ease;"></div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;font-size:11px;">
+            <span class="progress-stage" data-stage="ontology">1. Ontology</span>
+            <span class="progress-stage" data-stage="graph">2. Graph</span>
+            <span class="progress-stage" data-stage="entities">3. Entities</span>
+            <span class="progress-stage" data-stage="simulation_prepare">4. Profiles</span>
+            <span class="progress-stage" data-stage="simulation_run">5. Simulation</span>
+            <span class="progress-stage" data-stage="report">6. Report</span>
+          </div>
+          <div id="progress-message" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-mono);">Starting...</div>
+          <div id="progress-error" style="display:none;margin-top:12px;padding:10px;background:#fee;border:1px solid #fcc;border-radius:6px;font-size:12px;color:#900;"></div>
         </div>
       </div>
 
@@ -216,9 +254,88 @@ export function createInput(onSubmit) {
     });
   });
 
-  el.querySelector('#btn-run-simulation').addEventListener('click', () => {
-    const scenario = el.querySelector('#scenario-input').value;
-    if (scenario.trim()) onSubmit(scenario);
+  // Mode toggle (demo / real)
+  let currentMode = 'demo';
+  const modeDescEl = el.querySelector('#mode-desc');
+  const modeDescs = {
+    demo: 'Uses the pre-computed Taylor Swift snapshot. No API calls, no wait.',
+    real: 'Runs the full MiroFish pipeline against your scenario. Uses your LLM key; typically 10–30 minutes depending on simulation rounds.',
+  };
+  el.querySelectorAll('.input-mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentMode = btn.dataset.mode;
+      el.querySelectorAll('.input-mode-btn').forEach(b => b.classList.toggle('active', b === btn));
+      modeDescEl.textContent = modeDescs[currentMode];
+    });
+  });
+
+  // Progress helpers
+  const progressEl = el.querySelector('#pipeline-progress');
+  const progressBar = el.querySelector('#progress-bar');
+  const progressPct = el.querySelector('#progress-pct');
+  const progressMsg = el.querySelector('#progress-message');
+  const progressErr = el.querySelector('#progress-error');
+  const runBtn = el.querySelector('#btn-run-simulation');
+
+  function markStage(activeStage) {
+    const order = ['ontology', 'graph', 'entities', 'simulation_prepare', 'simulation_run', 'report'];
+    const activeIdx = order.indexOf(activeStage);
+    el.querySelectorAll('.progress-stage').forEach(s => {
+      const idx = order.indexOf(s.dataset.stage);
+      s.classList.remove('active', 'done');
+      if (idx < activeIdx) s.classList.add('done');
+      else if (idx === activeIdx) s.classList.add('active');
+    });
+  }
+
+  async function runRealMode(scenario) {
+    progressEl.style.display = 'block';
+    progressErr.style.display = 'none';
+    runBtn.disabled = true;
+    runBtn.textContent = 'Running...';
+
+    try {
+      const rounds = parseInt(el.querySelector('#slider-rounds').value, 10);
+      // Real backend runs much faster at 30 rounds; cap to keep demo-able
+      const maxRounds = Math.min(rounds, 40);
+
+      const runId = await startPipeline({
+        requirement: scenario,
+        projectName: scenario.slice(0, 60),
+        maxRounds,
+      });
+
+      const final = await pollPipeline(runId, (status) => {
+        progressPct.textContent = `${status.progress || 0}%`;
+        progressBar.style.width = `${status.progress || 0}%`;
+        progressMsg.textContent = status.message || '';
+        if (status.stage) markStage(status.stage);
+      });
+
+      // Navigate to report with the real project_id
+      const projectId = final.project_id;
+      if (!projectId) throw new Error('pipeline completed without project_id');
+      window.location.hash = `#report?project=${encodeURIComponent(projectId)}`;
+      // Dispatch an event so main.js can swap to the report screen
+      window.dispatchEvent(new CustomEvent('loka:navigate-to-report', {
+        detail: { projectId },
+      }));
+    } catch (err) {
+      progressErr.style.display = 'block';
+      progressErr.textContent = `Pipeline failed: ${err.message}`;
+      runBtn.disabled = false;
+      runBtn.textContent = 'Run World Simulation →';
+    }
+  }
+
+  runBtn.addEventListener('click', () => {
+    const scenario = el.querySelector('#scenario-input').value.trim();
+    if (!scenario) return;
+    if (currentMode === 'real') {
+      runRealMode(scenario);
+    } else {
+      onSubmit(scenario);
+    }
   });
 
   return el;

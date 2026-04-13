@@ -436,6 +436,41 @@ button { font-family: var(--font-sans); cursor: pointer; border: none; outline: 
 .input-screen__upload.visible { display: block; }
 .input-screen__upload:hover { border-color: var(--blue); color: var(--text-secondary); }
 .input-screen__actions { display: flex; gap: 8px; }
+
+/* Mode toggle + progress (real pipeline mode) */
+.input-mode-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.input-mode-btn:hover { color: var(--text-primary); }
+.input-mode-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.progress-stage {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: transparent;
+}
+.progress-stage.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(255, 69, 0, 0.08);
+}
+.progress-stage.done {
+  color: var(--text-secondary);
+  border-color: var(--border);
+  opacity: 0.5;
+}
 .input-screen__sidebar {
   display: flex;
   flex-direction: column;

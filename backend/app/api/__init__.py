@@ -8,8 +8,10 @@ graph_bp = Blueprint('graph', __name__)
 simulation_bp = Blueprint('simulation', __name__)
 report_bp = Blueprint('report', __name__)
 chat_bp = Blueprint('chat', __name__)
+project_bp = Blueprint('project', __name__)
 
 from . import graph  # noqa: E402, F401
 from . import simulation  # noqa: E402, F401
 from . import report  # noqa: E402, F401
 from . import chat  # noqa: E402, F401
+from . import project  # noqa: E402, F401

@@ -34,6 +34,7 @@ backend/venv/
 .pytest_cache/
 
 # Backend runtime artifacts (generated per project / simulation)
+backend/uploads/
 backend/app/uploads/projects/
 backend/app/uploads/simulations/
 backend/app/uploads/reports/

@@ -1,7 +1,13 @@
 // Report — Two-column: academic paper (left) + AI chat (right)
 
-import { reportContent } from '../data/report.js';
+import { reportContent as staticReportContent } from '../data/report.js';
 import { delay } from '../utils/animation.js';
+import { fetchProjectData, adaptReportForFrontend } from '../lib/project_client.js';
+
+// The screen starts out rendering the static Taylor Swift snapshot. If
+// createReport's `_loadProject(id)` hook is called later, we fetch the
+// project from the backend and swap the rendered content in place.
+let reportContent = staticReportContent;
 
 // Suggested questions that seed the chat — content comes from the LLM at runtime.
 const chatSuggestionQuestions = [
@@ -36,8 +42,6 @@ function buildReportContext() {
   return parts.join('\n');
 }
 
-const REPORT_CONTEXT = buildReportContext();
-
 // Conversation history for this chat session. Pushed/popped as the user
 // interacts; the full array is sent to /api/chat/stream each turn so the
 // LLM remembers prior messages.
@@ -66,7 +70,9 @@ async function streamChatApi(userMessage, { onFirstDelta, onDelta }) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       messages: chatHistory,
-      context: REPORT_CONTEXT,
+      // Rebuild context each turn so that _loadProject can swap the
+      // underlying report and the chat will see the new content.
+      context: buildReportContext(),
       system: SYSTEM_PROMPT,
     }),
   });
@@ -396,7 +402,124 @@ export function createReport() {
     drawMiniChart(el.querySelector('#report-mini-chart'));
   };
 
+  /**
+   * Swap the report content to one fetched from /api/project/<id>/data.
+   * Called by main.js when the user completes a real-mode pipeline run.
+   * Falls back to showing an error banner inside the paper div if fetch fails.
+   */
+  el._loadProject = async (projectId) => {
+    if (!projectId) return;
+    const paperEl = el.querySelector('#report-paper');
+    const loadingBanner = `
+      <div style="padding:40px;text-align:center;color:var(--text-secondary);">
+        <div style="font-size:14px;margin-bottom:8px;">Loading project ${projectId}...</div>
+        <div style="font-size:12px;">Fetching analysis results from backend</div>
+      </div>`;
+    paperEl.innerHTML = loadingBanner;
+
+    try {
+      const data = await fetchProjectData(projectId);
+      const adapted = adaptReportForFrontend(data);
+      // Update module-level var so chat context uses the fresh report
+      reportContent = adapted;
+      // Reset chat history — it was about the previous report
+      chatHistory.length = 0;
+
+      // Re-render the paper div from the new reportContent
+      paperEl.innerHTML = buildPaperHtml(reportContent);
+
+      // Re-bind TOC clicks (innerHTML wiped the handlers)
+      paperEl.querySelectorAll('.report-toc__item').forEach(item => {
+        item.addEventListener('click', (e) => {
+          e.preventDefault();
+          const target = paperEl.querySelector(item.getAttribute('href'));
+          if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
+
+      // Animate reveal
+      const sections = paperEl.querySelectorAll('[data-reveal]');
+      for (const section of sections) {
+        section.classList.add('visible');
+        section.style.opacity = '1';
+        section.style.transform = 'translateY(0)';
+        section.style.transition = 'all 0.35s ease';
+      }
+
+      // Reset chat panel to a fresh greeting
+      const messagesEl = el.querySelector('#report-chat-messages');
+      if (messagesEl) {
+        messagesEl.innerHTML = `
+          <div class="report-chat__msg report-chat__msg--ai">
+            <div class="report-chat__msg-avatar">LK</div>
+            <div class="report-chat__msg-content">
+              <div class="report-chat__msg-name">Loka AI</div>
+              I've loaded your analysis for project <code>${projectId}</code>. Ask me anything about the findings, methodology, or implications.
+            </div>
+          </div>`;
+      }
+    } catch (err) {
+      paperEl.innerHTML = `
+        <div style="padding:40px;text-align:center;">
+          <div style="color:#c33;font-size:14px;margin-bottom:8px;">Failed to load project</div>
+          <div style="color:var(--text-secondary);font-size:12px;font-family:var(--font-mono);">${err.message}</div>
+        </div>`;
+    }
+  };
+
   return el;
+}
+
+/**
+ * Build the inner HTML of the report paper div from a reportContent object.
+ * Extracted so _loadProject can re-render the same template with new data.
+ */
+function buildPaperHtml(content) {
+  return `
+    <div class="report-header anim-fade-up">
+      <div class="report-header__left">
+        <div class="report-header__logo"><span class="accent-text">Loka</span> Research</div>
+        <div class="report-header__meta">
+          Model: ${content.model || 'Loka World Model Engine v1.0'}<br/>
+          Engine: Loka World Model v1.0
+        </div>
+      </div>
+      <div class="report-header__right">
+        <div class="report-header__classification">${content.classification || 'CONFIDENTIAL'}</div>
+        <div class="report-header__date">${content.date || ''}</div>
+      </div>
+    </div>
+
+    <div class="report-paper-title" data-reveal>
+      <h1>${content.title || ''}</h1>
+      <p class="report-paper-subtitle">${content.subtitle || ''}</p>
+      <div class="report-paper-authors">Loka World Model Engine v1.0 · Autonomous Multi-Agent Simulation</div>
+    </div>
+
+    <div class="report-toc" data-reveal>
+      <div class="report-toc__title">Table of Contents</div>
+      <div class="report-toc__items">
+        <a class="report-toc__item" href="#abstract">Abstract</a>
+        ${(content.sections || []).map(s => `<a class="report-toc__item" href="#section-${s.num}"><span class="mono">${s.num}</span> ${s.title}</a>`).join('')}
+      </div>
+    </div>
+
+    <div class="report-section" data-reveal id="abstract">
+      <div class="report-section__title">Abstract</div>
+      <div class="report-section__body report-abstract">${content.abstract || ''}</div>
+    </div>
+
+    ${(content.sections || []).map(s => `
+      <div class="report-section" data-reveal id="section-${s.num}">
+        <div class="report-section__title"><span class="mono" style="margin-right: 8px;">${s.num}.</span>${s.title}</div>
+        <div class="report-section__body">${s.body || ''}</div>
+      </div>
+    `).join('')}
+
+    <div class="report-actions anim-fade-up">
+      <button class="btn btn--secondary" id="btn-restart">New Analysis</button>
+    </div>
+  `;
 }
 
 function drawMiniChart(canvas) {

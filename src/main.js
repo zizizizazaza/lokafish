@@ -93,6 +93,30 @@ function init() {
     });
   }, 100);
 
+  // Real-mode input screen dispatches this event after pipeline completes.
+  // Jump straight to the report screen (skipping agents/simulation/analytics)
+  // and let the report screen pick up the ?project=xxx hash to fetch real data.
+  window.addEventListener('loka:navigate-to-report', (e) => {
+    screens.forEach(s => s._animated = false);
+    // Tell the report screen it needs to re-mount against the new project
+    if (report._loadProject) {
+      report._loadProject(e.detail && e.detail.projectId);
+    }
+    goToScreen(5);
+  });
+
+  // If the page loads with #report?project=xxx already in the URL (e.g. user
+  // hit refresh), wait for the report screen to initialize and load it.
+  if (window.location.hash.startsWith('#report')) {
+    const m = window.location.hash.match(/project=([^&]+)/);
+    if (m && m[1]) {
+      setTimeout(() => {
+        if (report._loadProject) report._loadProject(decodeURIComponent(m[1]));
+        goToScreen(5);
+      }, 150);
+    }
+  }
+
   navbar.style.transform = 'translateY(-100%)';
   navbar.style.transition = 'transform 0.3s ease';
   app.appendChild(navbar);
