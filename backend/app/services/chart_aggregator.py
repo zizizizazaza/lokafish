@@ -264,12 +264,133 @@ def aggregate_sentiment(actions: List[Dict]) -> Dict:
     return {"timeline": timeline}
 
 
-def aggregate_all(actions: List[Dict]) -> Dict[str, Any]:
-    """Run all 5 aggregations and return them keyed by chart name."""
+def aggregate_all(
+    actions: List[Dict],
+    custom_keywords: Dict[str, Any] = None,
+) -> Dict[str, Any]:
+    """
+    Run all 5 aggregations and return them keyed by chart name.
+
+    If `custom_keywords` is provided (from the scenario-specific LLM
+    extraction in keyword_extractor.py), those dictionaries override the
+    baked Singapore/Taylor defaults. Any category the custom dict leaves
+    empty or absent falls back to the module-level defaults.
+    """
+    ck = custom_keywords or {}
+
+    districts = ck.get("districts") or DISTRICTS
+    industries = ck.get("industries") or INDUSTRIES
+    countries = ck.get("countries") or COUNTRIES
+
     return {
-        "heatmap": aggregate_heatmap(actions),
+        "heatmap": _aggregate_heatmap_with(actions, districts),
         "gdp": aggregate_gdp(actions),
-        "industry": aggregate_industry(actions),
-        "flow": aggregate_flow(actions),
+        "industry": _aggregate_industry_with(actions, industries),
+        "flow": _aggregate_flow_with(actions, countries),
         "sentiment": aggregate_sentiment(actions),
     }
+
+
+# ---------------------------------------------------------------------------
+# Parameterized variants — accept an external keyword dict so analytics
+# charts can reflect the current scenario rather than the baked defaults.
+# ---------------------------------------------------------------------------
+
+def _aggregate_heatmap_with(actions: List[Dict], districts: List[Dict]) -> Dict:
+    if not districts:
+        # Scenario has no geographic dimension (e.g., macro finance) —
+        # return an empty heatmap so the UI shows a clean empty state
+        # rather than a Taylor-Swift-shaped Singapore map.
+        return {"hotspots": [], "total_mentions": 0}
+
+    counts: Counter = Counter()
+    for a in actions:
+        text = action_text(a)
+        for d in districts:
+            n = keyword_count(text, d.get("keywords") or [])
+            if n > 0:
+                counts[d["id"]] += n
+
+    if not counts:
+        hotspots = []
+    else:
+        max_count = max(counts.values()) or 1
+        scale = 95.0
+        hotspots = []
+        for d in districts:
+            n = counts.get(d["id"], 0)
+            intensity = round(n / max_count, 3) if n else 0.0
+            value_m = round(intensity * scale, 1)
+            hotspots.append({
+                "x": d.get("x", 0.5),
+                "y": d.get("y", 0.5),
+                "label": d["label"],
+                "value": f"S${value_m:.0f}M" if value_m else "—",
+                "intensity": max(intensity, 0.05) if n else 0.0,
+                "mention_count": n,
+            })
+    return {"hotspots": hotspots, "total_mentions": int(sum(counts.values()))}
+
+
+def _aggregate_industry_with(actions: List[Dict], industries: List[Dict]) -> List[Dict]:
+    if not industries:
+        return []
+
+    counts: Counter = Counter()
+    for a in actions:
+        text = action_text(a)
+        for ind in industries:
+            n = keyword_count(text, ind.get("keywords") or [])
+            if n > 0:
+                counts[ind["label"]] += n
+
+    if not counts:
+        return [{"label": ind["label"], "color": ind.get("color", "#2383E2"),
+                 "value": 0, "growth": "—", "raw_count": 0} for ind in industries]
+
+    max_count = max(counts.values()) or 1
+    scale = 125.0 / max_count
+
+    out = []
+    for ind in industries:
+        c = counts.get(ind["label"], 0)
+        value = round(c * scale, 1)
+        out.append({
+            "label": ind["label"],
+            "color": ind.get("color", "#2383E2"),
+            "value": value,
+            "growth": f"+{round(value / 8, 1)}%" if value > 0 else "—",
+            "raw_count": c,
+        })
+    return out
+
+
+def _aggregate_flow_with(actions: List[Dict], countries: List[Dict]) -> Dict:
+    if not countries:
+        return {"totalVisitors": 0, "sources": []}
+
+    counts: Counter = Counter()
+    for a in actions:
+        text = action_text(a)
+        for c in countries:
+            n = keyword_count(text, c.get("keywords") or [])
+            if n > 0:
+                counts[c["label"]] += n
+
+    sources = []
+    total = sum(counts.values())
+    for c in countries:
+        n = counts.get(c["label"], 0)
+        if n > 0:
+            sources.append({
+                "label": c["label"],
+                "value": n,
+                "color": c.get("color", "#0F7B6C"),
+                "raw_count": n,
+            })
+    sources.sort(key=lambda x: x["value"], reverse=True)
+
+    if not sources:
+        return {"totalVisitors": 0, "sources": []}
+
+    return {"totalVisitors": total, "sources": sources}

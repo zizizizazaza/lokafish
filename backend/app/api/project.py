@@ -321,6 +321,11 @@ def project_data(project_id: str):
         "simulation_id": sim_id,
     }
 
+    # Load scenario-specific chart keywords if the pipeline produced them
+    # during Stage 0. If missing, chart_aggregator falls back to the baked
+    # Taylor / Singapore defaults.
+    custom_keywords = load_json("_keywords.json") or {}
+
     # Run all the adaptations
     agents_payload = data_adapter.build_agents_payload(
         entities=entities,
@@ -334,7 +339,10 @@ def project_data(project_id: str):
         profiles=profiles,
         report_md=report_md,
     )
-    analytics_payload = chart_aggregator.aggregate_all(actions)
+    analytics_payload = chart_aggregator.aggregate_all(
+        actions,
+        custom_keywords=custom_keywords,
+    )
     report_payload = data_adapter.build_report_payload(
         report_md=report_md,
         requirement=requirement,

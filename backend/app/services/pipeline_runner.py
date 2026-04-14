@@ -157,7 +157,30 @@ def run_full_pipeline(
             })
             # From here on, Stage 1 reads the expanded document.
             doc_path = expanded_path
-            emit("expansion", 100, f"Stakeholder map: {expanded_md.count('- ')} bullets")
+            emit("expansion", 60, f"Stakeholder map: {expanded_md.count('- ')} bullets")
+
+            # Also extract scenario-specific chart keywords so analytics
+            # charts aren't stuck with Taylor Swift / Singapore fallbacks.
+            try:
+                from . import keyword_extractor
+                raw_kw = keyword_extractor.extract_keywords(
+                    requirement=requirement,
+                    extra_context=expanded_md[:4000],
+                )
+                kw = keyword_extractor.normalize_keywords(raw_kw)
+                if kw:
+                    (output_dir / "_keywords.json").write_text(
+                        json.dumps(kw, ensure_ascii=False, indent=2),
+                        encoding="utf-8",
+                    )
+                    emit("expansion", 100,
+                         f"Keywords: {len(kw.get('industries', []))} industries, "
+                         f"{len(kw.get('countries', []))} countries")
+                else:
+                    emit("expansion", 100, "Keywords: fallback to defaults")
+            except Exception as e:
+                sess._log(f"keyword extraction failed: {e}")
+                emit("expansion", 100, f"Keywords skipped ({e})")
         except Exception as e:
             # Expansion is a best-effort pre-step. If it fails, fall
             # through to Stage 1 with the original document.

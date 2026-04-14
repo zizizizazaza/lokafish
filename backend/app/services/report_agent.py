@@ -613,25 +613,36 @@ PLAN_USER_PROMPT_TEMPLATE = """\
 # ── 章节生成 prompt ──
 
 SECTION_SYSTEM_PROMPT_TEMPLATE = """\
+═══════════════════════════════════════════════════════════════
+【用户的预测需求 - 每一段话都必须服务于它】
+═══════════════════════════════════════════════════════════════
+
+>>> {simulation_requirement} <<<
+
+本章节存在的唯一目的，是回答上述预测需求中的某一个具体方面。
+如果你写出的任何段落、数据、引用无法直接回答这个预测需求，
+说明你跑题了 —— 立刻丢弃并重写。
+
+═══════════════════════════════════════════════════════════════
+
 你是一个「未来预测报告」的撰写专家，正在撰写报告的一个章节。
 
 报告标题: {report_title}
 报告摘要: {report_summary}
-预测场景（模拟需求）: {simulation_requirement}
-
 当前要撰写的章节: {section_title}
 
 ═══════════════════════════════════════════════════════════════
 【核心理念】
 ═══════════════════════════════════════════════════════════════
 
-模拟世界是对未来的预演。我们向模拟世界注入了特定条件（模拟需求），
-模拟中Agent的行为和互动，就是对未来人群行为的预测。
+模拟世界是对预测需求的预演。我们向模拟世界注入了"{simulation_requirement}"
+作为核心变量，模拟中Agent的行为和互动，就是对未来人群在这个特定场景下
+会如何反应的预测。
 
 你的任务是：
-- 揭示在设定条件下，未来发生了什么
-- 预测各类人群（Agent）是如何反应和行动的
-- 发现值得关注的未来趋势、风险和机会
+- 揭示在"{simulation_requirement}"这个场景下，未来发生了什么
+- 预测各类人群（Agent）在这个场景下是如何反应和行动的
+- 发现值得关注的未来趋势、风险和机会——必须直接回答预测需求
 
 ❌ 不要写成对现实世界现状的分析
 ✅ 要聚焦于"未来会怎样"——模拟结果就是预测的未来
@@ -764,7 +775,21 @@ SECTION_SYSTEM_PROMPT_TEMPLATE = """\
    ```
 5. 保持与其他章节的逻辑连贯性
 6. 【避免重复】仔细阅读下方已完成的章节内容，不要重复描述相同的信息
-7. 【再次强调】不要添加任何标题！用**粗体**代替小节标题"""
+7. 【再次强调】不要添加任何标题！用**粗体**代替小节标题
+
+═══════════════════════════════════════════════════════════════
+【最终收尾检查 - 写完之前必读】
+═══════════════════════════════════════════════════════════════
+
+在你输出 Final Answer 之前，逐项检查：
+
+1. 我的每一段是否在直接回答 >>> {simulation_requirement} <<< 的某一个方面？
+2. 我引用的 Agent 言论是否与 {simulation_requirement} 的场景直接相关？
+3. 读者读完本章节，能否对 {simulation_requirement} 这个问题的一部分
+   得到有数据支撑的回答？
+
+如果任何一条不满足，重写相关段落再输出 Final Answer。
+泛泛而谈的段落（不绑定具体预测需求）= 废话 = 必须删除。"""
 
 SECTION_USER_PROMPT_TEMPLATE = """\
 已完成的章节内容（请仔细阅读，避免重复）：
@@ -774,11 +799,23 @@ SECTION_USER_PROMPT_TEMPLATE = """\
 【当前任务】撰写章节: {section_title}
 ═══════════════════════════════════════════════════════════════
 
+【这个章节必须回答的问题】
+本章节是整个报告的一部分，整个报告要回答的是：
+
+>>> {simulation_requirement} <<<
+
+本章节("{section_title}")要负责回答上面这个问题的其中一个具体方面。
+所有你检索到的证据、引用到的 Agent 言论、写出的段落，都必须服务于
+回答 >>> {simulation_requirement} <<< 这个预测需求。
+
 【重要提醒】
 1. 仔细阅读上方已完成的章节，避免重复相同的内容！
 2. 开始前必须先调用工具获取模拟数据
 3. 请混合使用不同工具，不要只用一种
 4. 报告内容必须来自检索结果，不要使用自己的知识
+5. 每次 tool 调用的 query 中必须包含 >>> {simulation_requirement} <<< 中
+   出现过的关键词或概念。禁止使用"人群反应"、"未来趋势"这种与具体预测
+   需求无关的泛词作为 query。
 
 【⚠️ 格式警告 - 必须遵守】
 - ❌ 不要写任何标题（#、##、###、####都不行）
@@ -1275,6 +1312,7 @@ class ReportAgent:
         user_prompt = SECTION_USER_PROMPT_TEMPLATE.format(
             previous_content=previous_content,
             section_title=section.title,
+            simulation_requirement=self.simulation_requirement,
         )
 
         messages = [
@@ -1296,11 +1334,32 @@ class ReportAgent:
         for iteration in range(max_iterations):
             if progress_callback:
                 progress_callback(
-                    "generating", 
+                    "generating",
                     int((iteration / max_iterations) * 100),
                     t('progress.deepSearchAndWrite', current=tool_calls_count, max=self.MAX_TOOL_CALLS_PER_SECTION)
                 )
-            
+
+            # Inject a requirement-anchor reminder before each LLM turn
+            # from iteration 2 onwards. This keeps the prediction requirement
+            # in the LLM's recent context window on EVERY iteration, so the
+            # model can't drift into generic essay-mode as the tool-result
+            # buffer grows.
+            #
+            # Iteration 0 already has the initial user_prompt as the last
+            # message, so we skip the injection there to avoid stacking two
+            # user messages in a row (some models reject that).
+            if iteration > 0 and messages and messages[-1]["role"] == "assistant":
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        f"【本轮提醒】本章节必须回答: {self.simulation_requirement}\n"
+                        f"下一步你要做什么？\n"
+                        f"- 如果调用工具，query 中必须包含上述预测需求中的具体关键词，"
+                        f"不允许用泛词（如'人群反应''未来趋势'）作为 query。\n"
+                        f"- 如果进入 Final Answer，每一段都必须在回答上述预测需求的某一个具体方面。"
+                    ),
+                })
+
             # 调用LLM
             response = self.llm.chat(
                 messages=messages,
