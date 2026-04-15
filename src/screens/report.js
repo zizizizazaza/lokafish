@@ -3,11 +3,33 @@
 import { reportContent as staticReportContent } from '../data/report.js';
 import { delay } from '../utils/animation.js';
 import { fetchProjectData, adaptReportForFrontend } from '../lib/project_client.js';
+import { renderInlineChart, CHART_TITLES } from '../components/inline-charts.js';
 
 // The screen starts out rendering the static Taylor Swift snapshot. If
 // createReport's `_loadProject(id)` hook is called later, we fetch the
 // project from the backend and swap the rendered content in place.
 let reportContent = staticReportContent;
+// Analytics payload cached from the most recent _loadProject call, so
+// inline chart placeholders in the report body can render without a
+// second network round trip.
+let cachedAnalytics = null;
+
+// Human-readable labels for the role badges shown at the top of each
+// consulting-template section.
+const ROLE_LABELS = {
+  strategist: 'Strategy Partner',
+  analyst: 'Senior Analyst',
+  risk_officer: 'Chief Risk Officer',
+  finance: 'Finance Analyst',
+  policy: 'Policy Analyst',
+};
+const ROLE_COLORS = {
+  strategist: '#2383E2',
+  analyst: '#0F7B6C',
+  risk_officer: '#E03E3E',
+  finance: '#D9730D',
+  policy: '#6940A5',
+};
 // The currently-loaded project id (null in demo mode) — used by the
 // Download Markdown button to build the correct URL.
 let currentProjectId = null;
@@ -471,11 +493,17 @@ export function createReport() {
       const adapted = adaptReportForFrontend(data);
       // Update module-level var so chat context uses the fresh report
       reportContent = adapted;
+      // Cache analytics so inline chart placeholders can render without
+      // a second fetch round trip.
+      cachedAnalytics = data.analytics || null;
       // Reset chat history — it was about the previous report
       chatHistory.length = 0;
 
       // Re-render the paper div from the new reportContent
       paperEl.innerHTML = buildPaperHtml(reportContent);
+
+      // Render inline chart placeholders ([[chart:xxx]]) from the body
+      hydrateInlineCharts(paperEl, cachedAnalytics);
 
       // Re-bind the Download Markdown button (innerHTML wiped the handler)
       const dlBtn = paperEl.querySelector('#btn-download-md');
@@ -534,15 +562,35 @@ function htmlToText(html) {
 /**
  * Build the inner HTML of the report paper div from a reportContent object.
  * Extracted so _loadProject can re-render the same template with new data.
+ *
+ * In consulting-template mode each section carries a `role` field; we
+ * render a coloured badge above the section title so the reader can see
+ * which analyst "wrote" the section.
  */
 function buildPaperHtml(content) {
+  const sectionHtml = (s) => {
+    const role = s.role;
+    const badge = role && ROLE_LABELS[role]
+      ? `<div class="report-role-badge" style="--role-color:${ROLE_COLORS[role] || '#9B9A97'}">
+           <span class="report-role-badge__dot"></span>
+           <span class="report-role-badge__name">${ROLE_LABELS[role]}</span>
+         </div>`
+      : '';
+    return `
+      <div class="report-section" data-reveal id="section-${s.num}">
+        ${badge}
+        <div class="report-section__title"><span class="mono" style="margin-right: 8px;">${s.num}.</span>${s.title}</div>
+        <div class="report-section__body">${s.body || ''}</div>
+      </div>`;
+  };
+
   return `
     <div class="report-header anim-fade-up">
       <div class="report-header__left">
-        <div class="report-header__logo"><span class="accent-text">Loka</span> Research</div>
+        <div class="report-header__logo"><span class="accent-text">Loka</span> Consulting</div>
         <div class="report-header__meta">
-          Model: ${content.model || 'Loka World Model Engine v1.0'}<br/>
-          Engine: Loka World Model v1.0
+          Model: ${content.model || 'Loka Multi-Agent Simulation'}<br/>
+          Engine: Loka Consulting AI
         </div>
       </div>
       <div class="report-header__right">
@@ -554,34 +602,56 @@ function buildPaperHtml(content) {
     <div class="report-paper-title" data-reveal>
       <h1>${content.title || ''}</h1>
       <p class="report-paper-subtitle">${content.subtitle || ''}</p>
-      <div class="report-paper-authors">Loka World Model Engine v1.0 · Autonomous Multi-Agent Simulation</div>
+      <div class="report-paper-authors">Loka Consulting AI · Multi-Agent Simulation Analysis</div>
     </div>
 
     <div class="report-toc" data-reveal>
       <div class="report-toc__title">Table of Contents</div>
       <div class="report-toc__items">
-        <a class="report-toc__item" href="#abstract">Abstract</a>
+        <a class="report-toc__item" href="#abstract">Executive Brief</a>
         ${(content.sections || []).map(s => `<a class="report-toc__item" href="#section-${s.num}"><span class="mono">${s.num}</span> ${s.title}</a>`).join('')}
       </div>
     </div>
 
     <div class="report-section" data-reveal id="abstract">
-      <div class="report-section__title">Abstract</div>
+      <div class="report-section__title">Executive Brief</div>
       <div class="report-section__body report-abstract">${content.abstract || ''}</div>
     </div>
 
-    ${(content.sections || []).map(s => `
-      <div class="report-section" data-reveal id="section-${s.num}">
-        <div class="report-section__title"><span class="mono" style="margin-right: 8px;">${s.num}.</span>${s.title}</div>
-        <div class="report-section__body">${s.body || ''}</div>
-      </div>
-    `).join('')}
+    ${(content.sections || []).map(sectionHtml).join('')}
 
     <div class="report-actions anim-fade-up">
       <button class="btn btn--primary" id="btn-download-md">Download Markdown</button>
       <button class="btn btn--secondary" id="btn-restart">New Analysis</button>
     </div>
   `;
+}
+
+/**
+ * Scan a freshly rendered paper element for `.inline-chart[data-chart=...]`
+ * placeholders and draw a canvas into each one using the analytics payload
+ * cached from /api/project/<id>/data.
+ */
+function hydrateInlineCharts(paperEl, analytics) {
+  if (!paperEl || !analytics) return;
+  const placeholders = paperEl.querySelectorAll('.inline-chart');
+  placeholders.forEach((div) => {
+    const chartId = div.dataset.chart;
+    if (!chartId) return;
+    div.innerHTML = `
+      <div class="inline-chart__caption">Figure — ${CHART_TITLES[chartId] || chartId}</div>
+      <canvas class="inline-chart__canvas"></canvas>
+    `;
+    const canvas = div.querySelector('canvas');
+    // Defer draw one frame so the canvas has layout-computed dimensions.
+    requestAnimationFrame(() => {
+      try {
+        renderInlineChart(chartId, canvas, analytics);
+      } catch (err) {
+        console.warn('inline chart render failed:', chartId, err);
+      }
+    });
+  });
 }
 
 function drawMiniChart(canvas) {

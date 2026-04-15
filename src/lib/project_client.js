@@ -141,14 +141,39 @@ export async function fetchProjectData(projectId) {
  * sections properly.
  */
 export function adaptReportForFrontend(backendData) {
+  // Prefer the backend's consulting-template report (built by
+  // data_adapter.build_report_payload) — it already includes per-section
+  // role, expected_charts, pre-rendered HTML body, and structured
+  // references/risks arrays.
+  const backendReport = backendData?.report;
+  if (backendReport && Array.isArray(backendReport.sections) && backendReport.sections.length) {
+    return {
+      classification: backendReport.classification || 'CONFIDENTIAL',
+      date: backendReport.date || new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+      model: backendReport.model || 'Loka Consulting AI',
+      title: backendReport.title || 'Loka Analysis Report',
+      subtitle: backendReport.subtitle || '',
+      abstract: backendReport.abstract || '',
+      sections: backendReport.sections.map(s => ({
+        num: s.num,
+        title: s.title,
+        body: s.body,
+        role: s.role || 'analyst',
+        charts: s.charts || [],
+      })),
+      references: backendReport.references || [],
+      risks: backendReport.risks || [],
+    };
+  }
+
+  // Fallback: old markdown-only parser (used for legacy snapshots that
+  // don't have the consulting-template metadata).
   const report = backendData?.report || {};
   const md = backendData?.report_markdown || report.markdown_content || '';
 
-  // Best-effort title extraction from the markdown (first H1)
   const titleMatch = md.match(/^#\s+(.+)$/m);
   const title = titleMatch ? titleMatch[1].trim() : 'Loka Analysis Report';
 
-  // Best-effort abstract: everything between the title and first H2
   let abstract = '';
   if (titleMatch) {
     const after = md.slice(titleMatch.index + titleMatch[0].length);
@@ -156,7 +181,6 @@ export function adaptReportForFrontend(backendData) {
     abstract = (nextH2 ? after.slice(0, nextH2.index) : after).trim();
   }
 
-  // Parse H2 sections
   const sections = [];
   const h2Regex = /^##\s+(.+)$/gm;
   let match;
@@ -168,19 +192,20 @@ export function adaptReportForFrontend(backendData) {
     const p = positions[i];
     const end = i + 1 < positions.length ? positions[i + 1].index : md.length;
     const body = md.slice(p.index + p.title.length + 3, end).trim();
-    // Strip the leading number like "1. " or "1 " if present
     const numMatch = p.title.match(/^(\d+(?:\.\d+)?)[.\s]+(.+)$/);
     sections.push({
       num: numMatch ? numMatch[1] : String(i + 1),
       title: numMatch ? numMatch[2] : p.title,
       body: markdownToHtml(body),
+      role: 'analyst',
+      charts: [],
     });
   }
 
   return {
     classification: 'CONFIDENTIAL',
     date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
-    model: 'Loka World Model Engine v1.0',
+    model: 'Loka Consulting AI',
     title,
     subtitle: '',
     abstract: markdownToHtml(abstract),

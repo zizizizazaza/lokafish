@@ -356,8 +356,18 @@ def _md_inline(s: str) -> str:
     return s
 
 
+# Chart placeholder pattern: [[chart:id]] on its own line, case-insensitive.
+# Matched BEFORE HTML escaping so we can replace with a div wrapper.
+_CHART_PLACEHOLDER_RE = re.compile(r"^\s*\[\[chart:([a-zA-Z_]+)\]\]\s*$")
+
+
 def md_body_to_html(md: str) -> str:
-    """Minimal markdown → HTML for paragraphs, bold, italic, lists, tables."""
+    """Minimal markdown → HTML for paragraphs, bold, italic, lists, tables.
+
+    Also recognizes `[[chart:xxx]]` on its own line as an inline chart
+    placeholder — turned into `<div class="inline-chart" data-chart="xxx">`
+    for the frontend to render.
+    """
     if not md:
         return ""
     lines = md.split("\n")
@@ -404,6 +414,16 @@ def md_body_to_html(md: str) -> str:
         elif in_table:
             flush_table()
 
+        # Chart placeholder — [[chart:xxx]] on its own line
+        chart_m = _CHART_PLACEHOLDER_RE.match(line)
+        if chart_m:
+            flush_list()
+            chart_id = chart_m.group(1).lower()
+            html_parts.append(
+                f'<div class="inline-chart" data-chart="{chart_id}"></div>'
+            )
+            continue
+
         if line.startswith("- "):
             if not in_list:
                 html_parts.append('<ul style="padding-left: 24px; margin: 10px 0;">')
@@ -424,6 +444,9 @@ def md_body_to_html(md: str) -> str:
 
 
 def md_to_sections(md: str) -> List[Dict]:
+    """Split the markdown report into sections. Each section exposes the
+    rendered HTML body and the list of chart IDs that appear inside it
+    (so the frontend can pre-load the data it needs)."""
     if not md:
         return []
     sections = []
@@ -437,7 +460,18 @@ def md_to_sections(md: str) -> List[Dict]:
             num, title = m.group(1), m.group(2)
         else:
             num, title = str(i + 1), heading
-        sections.append({"num": num, "title": title, "body": md_body_to_html(body_md)})
+        # Harvest chart IDs from the raw markdown so we can surface them
+        # at the section level even if the HTML conversion eats them.
+        charts_in_body = [
+            m2.group(1).lower()
+            for m2 in re.finditer(r"\[\[chart:([a-zA-Z_]+)\]\]", body_md)
+        ]
+        sections.append({
+            "num": num,
+            "title": title,
+            "body": md_body_to_html(body_md),
+            "charts": charts_in_body,
+        })
     return sections
 
 
@@ -466,17 +500,53 @@ def extract_risks(md: str) -> List[str]:
 
 
 def build_report_payload(*, report_md: str, requirement: str = "",
-                        meta: Optional[Dict] = None) -> Dict:
+                        meta: Optional[Dict] = None,
+                        report_json: Optional[Dict] = None) -> Dict:
+    """Assemble the frontend-ready report payload.
+
+    If `report_json` (parsed 05b_report.json) is provided and contains an
+    outline with role / expected_charts per section, that metadata is
+    merged into the parsed markdown sections by index. This lets the
+    Report screen render a role badge + consulting-template layout
+    without re-inferring anything from the raw markdown.
+    """
     from datetime import datetime
     sections = md_to_sections(report_md)
-    title = sections[0]["title"] if sections else "Loka Analysis Report"
+
+    # Merge outline metadata (role, expected_charts) into the parsed sections
+    outline_sections = []
+    if report_json:
+        outline = report_json.get("outline") or {}
+        outline_sections = outline.get("sections") or []
+    for i, s in enumerate(sections):
+        if i < len(outline_sections):
+            os = outline_sections[i] or {}
+            s["role"] = os.get("role") or "analyst"
+            # Prefer charts detected in the body, fall back to expected
+            if not s.get("charts"):
+                s["charts"] = os.get("expected_charts") or []
+        else:
+            s.setdefault("role", "analyst")
+            s.setdefault("charts", [])
+
+    # Title: prefer explicit outline title, then first section, then default
+    title = "Loka Analysis Report"
+    if report_json and report_json.get("outline", {}).get("title"):
+        title = report_json["outline"]["title"]
+    elif sections:
+        title = sections[0]["title"]
+
+    summary = ""
+    if report_json and report_json.get("outline", {}).get("summary"):
+        summary = report_json["outline"]["summary"]
+
     abstract = extract_abstract(report_md)
     return {
         "classification": "CONFIDENTIAL",
         "date": datetime.now().strftime("%B %d, %Y"),
-        "model": "Multi-Agent Simulation × Quantitative Economic Analysis",
+        "model": "Multi-Agent Consulting Analysis × Loka World Model",
         "title": title,
-        "subtitle": (requirement or "")[:140],
+        "subtitle": summary or (requirement or "")[:140],
         "abstract": md_body_to_html(abstract),
         "sections": sections,
         "references": [

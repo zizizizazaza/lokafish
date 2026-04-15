@@ -305,6 +305,7 @@ def project_data(project_id: str):
 
     md_path = d / "05c_report.md"
     report_md = md_path.read_text(encoding="utf-8") if md_path.exists() else ""
+    report_json = load_json("05b_report.json") or {}
 
     project_meta = load_json("01b_project.json") or {}
     requirement = (
@@ -347,6 +348,7 @@ def project_data(project_id: str):
         report_md=report_md,
         requirement=requirement,
         meta=meta,
+        report_json=report_json,
     )
 
     return jsonify({

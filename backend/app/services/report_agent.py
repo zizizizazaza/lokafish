@@ -397,14 +397,27 @@ class ReportStatus(str, Enum):
 
 @dataclass
 class ReportSection:
-    """报告章节"""
+    """报告章节 (consulting-template extended schema)"""
     title: str
     content: str = ""
+    # PR1: role decides which system-prompt persona writes this section
+    #      (strategist / analyst / risk_officer / finance / policy)
+    role: str = "analyst"
+    # PR1: which pre-computed charts the writer should try to embed as
+    #      [[chart:xxx]] placeholders. Valid IDs: gdp, industry, flow,
+    #      heatmap, sentiment
+    expected_charts: List[str] = None
+
+    def __post_init__(self):
+        if self.expected_charts is None:
+            self.expected_charts = []
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "title": self.title,
-            "content": self.content
+            "content": self.content,
+            "role": self.role,
+            "expected_charts": self.expected_charts,
         }
 
     def to_markdown(self, level: int = 2) -> str:
@@ -550,47 +563,115 @@ TOOL_DESC_INTERVIEW_AGENTS = """\
 # ── 大纲规划 prompt ──
 
 PLAN_SYSTEM_PROMPT = """\
-你是一个「未来预测报告」的撰写专家，拥有对模拟世界的「上帝视角」——你可以洞察模拟中每一位Agent的行为、言论和互动。
-
-【核心理念】
-我们构建了一个模拟世界，并向其中注入了特定的「模拟需求」作为变量。模拟世界的演化结果，就是对未来可能发生情况的预测。你正在观察的不是"实验数据"，而是"未来的预演"。
+你是一家顶级管理咨询公司（McKinsey / BCG / Bain 风格）的项目总监，
+正在为客户交付一份基于多智能体模拟的分析报告。
 
 【你的任务】
-撰写一份「未来预测报告」，回答：
-1. 在我们设定的条件下，未来发生了什么？
-2. 各类Agent（人群）是如何反应和行动？
-3. 这个模拟揭示了哪些值得关注的未来趋势和风险？
+设计报告的大纲结构，严格遵循 **咨询公司报告模板**。
 
-【报告定位】
-- ✅ 这是一份基于模拟的未来预测报告，揭示"如果这样，未来会怎样"
-- ✅ 聚焦于预测结果：事件走向、群体反应、涌现现象、潜在风险
-- ✅ 模拟世界中的Agent言行就是对未来人群行为的预测
-- ❌ 不是对现实世界现状的分析
-- ❌ 不是泛泛而谈的舆情综述
+═══════════════════════════════════════════════════════════════
+【强制模板 - 必须包含以下 6 个章节，顺序不能变】
+═══════════════════════════════════════════════════════════════
 
-【章节数量限制】
-- 最少2个章节，最多5个章节
-- 不需要子章节，每个章节直接撰写完整内容
-- 内容要精炼，聚焦于核心预测发现
-- 章节结构由你根据预测结果自主设计
+章节 1: **Executive Summary** (执行摘要)
+  - 1 页的核心结论 + 关键数字
+  - 角色: strategist
+  - 必备图表: 至少 1 个(推荐 gdp 或 industry)
 
-请输出JSON格式的报告大纲，格式如下：
+章节 2: **Situation Assessment** (现状评估)
+  - 场景背景 + 利益相关者地图 + 关键约束
+  - 角色: analyst
+  - 必备图表: 至少 1 个(推荐 flow 或 heatmap)
+
+章节 3: **Core Findings** (核心发现)
+  - 3-5 个带数据支撑的主要发现
+  - 角色: analyst
+  - 必备图表: 2-3 个(industry + flow + sentiment 组合)
+
+章节 4: **Scenario Analysis** (情景分析)
+  - Bull / Base / Bear 三种情景的数字对比
+  - 角色: strategist
+  - 必备图表: 至少 1 个(gdp 最合适)
+
+章节 5: **Risk Register** (风险清单)
+  - 结构化风险列表(风险 / 概率 / 影响 / 缓解措施)
+  - 角色: risk_officer
+  - 图表: 可选(sentiment 可用于情绪风险)
+
+章节 6: **Recommendations** (行动建议)
+  - 按优先级排序的 MECE 行动清单
+  - 角色: strategist
+  - 图表: 通常不需要
+
+═══════════════════════════════════════════════════════════════
+【可用的角色标签 (role)】
+═══════════════════════════════════════════════════════════════
+
+- strategist     战略分析师 (负责 Exec Summary / Scenarios / Recommendations)
+- analyst        市场分析师 (负责 Situation / Core Findings)
+- risk_officer   风险官 (负责 Risk Register)
+- finance        财务分析师 (偏重估值和数字的场景)
+- policy         政策分析师 (涉及监管场景)
+
+═══════════════════════════════════════════════════════════════
+【可用的图表 ID (expected_charts)】
+═══════════════════════════════════════════════════════════════
+
+每个 section 的 `expected_charts` 字段从下面这 5 个 ID 里选 0-3 个:
+
+- **"gdp"**       ← 时间序列,显示随模拟回合演化的影响趋势
+                     适合: Exec Summary / Scenarios
+- **"industry"**  ← 行业影响柱状图(基于 action 流里的行业关键词计数)
+                     适合: Core Findings / Exec Summary
+- **"flow"**      ← 国家/地区来源的饼图
+                     适合: Situation Assessment / Core Findings
+- **"heatmap"**   ← 地理热力图(只在有地理维度的场景下有意义)
+                     适合: Situation Assessment(如果是地理场景)
+- **"sentiment"** ← 情绪演化曲线
+                     适合: Risk Register / Core Findings
+
+如果当前场景没有地理维度(比如宏观金融、科技财报),不要放 heatmap。
+
+═══════════════════════════════════════════════════════════════
+【输出格式 - 严格的 JSON】
+═══════════════════════════════════════════════════════════════
+
 {
-    "title": "报告标题",
-    "summary": "报告摘要（一句话概括核心预测发现）",
-    "sections": [
-        {
-            "title": "章节标题",
-            "description": "章节内容描述"
-        }
-    ]
+  "title": "报告标题(简洁、有力)",
+  "summary": "一句话摘要(<= 80 字)",
+  "sections": [
+    {
+      "title": "Executive Summary",
+      "role": "strategist",
+      "description": "本章要写的核心要点(1-2 句)",
+      "expected_charts": ["gdp"]
+    },
+    {
+      "title": "Situation Assessment",
+      "role": "analyst",
+      "description": "...",
+      "expected_charts": ["flow", "heatmap"]
+    },
+    ...恰好 6 个 section...
+  ]
 }
 
-注意：sections数组最少2个，最多5个元素！"""
+要求:
+1. `sections` 数组必须**恰好 6 个元素**,按上面的顺序
+2. 每个 section 必须有 `title`, `role`, `description`, `expected_charts` 四个字段
+3. `title` 必须反映当前预测场景的具体内容,不要直接用 "Executive Summary"
+   这种泛标题 —— 可以写 "Executive Summary: 泰勒·斯威夫特演唱会对新加坡的经济冲击"
+4. `expected_charts` 里的 ID 必须从上面列出的 5 个里选
+5. 整个 JSON 必须能被 json.loads() 解析,不要 markdown fence"""
 
 PLAN_USER_PROMPT_TEMPLATE = """\
-【预测场景设定】
-我们向模拟世界注入的变量（模拟需求）：{simulation_requirement}
+═══════════════════════════════════════════════════════════════
+【用户的预测需求 - 整份报告必须围绕它展开】
+═══════════════════════════════════════════════════════════════
+
+>>> {simulation_requirement} <<<
+
+═══════════════════════════════════════════════════════════════
 
 【模拟世界规模】
 - 参与模拟的实体数量: {total_nodes}
@@ -598,19 +679,123 @@ PLAN_USER_PROMPT_TEMPLATE = """\
 - 实体类型分布: {entity_types}
 - 活跃Agent数量: {total_entities}
 
-【模拟预测到的部分未来事实样本】
+【模拟捕捉到的部分关键事实样本】
 {related_facts_json}
 
-请以「上帝视角」审视这个未来预演：
-1. 在我们设定的条件下，未来呈现出了什么样的状态？
-2. 各类人群（Agent）是如何反应和行动的？
-3. 这个模拟揭示了哪些值得关注的未来趋势？
+═══════════════════════════════════════════════════════════════
 
-根据预测结果，设计最合适的报告章节结构。
+请按咨询公司标准交付大纲。每个 section 的 title 必须反映
+>>> {simulation_requirement} <<< 的具体内容，不是泛的模板名。
 
-【再次提醒】报告章节数量：最少2个，最多5个，内容要精炼聚焦于核心预测发现。"""
+严格要求:
+1. **恰好 6 个章节**,顺序固定(Exec Summary / Situation / Core
+   Findings / Scenario Analysis / Risk Register / Recommendations)
+2. 每个章节带 role 和 expected_charts 字段
+3. JSON 格式,不要 markdown fence
+4. 图表 ID 只能从 [gdp, industry, flow, heatmap, sentiment] 里选"""
 
 # ── 章节生成 prompt ──
+
+# Per-role guidance injected into SECTION_SYSTEM_PROMPT_TEMPLATE via the
+# {role_guidance} placeholder. Each string gives the LLM a distinct voice
+# and analytical lens, so the 6 sections of a consulting report don't all
+# read in the same register.
+ROLE_GUIDANCE = {
+    "strategist": """\
+【你的身份】Strategy Partner(战略合伙人)
+- 你站在客户 CEO 的立场思考,关心"这对我的业务意味着什么"
+- 语气: 权威、自信、行动导向
+- 偏重: 大图景、机会与威胁、优先级、明确建议
+- 写作风格: 先抛结论再给支撑,短句,多用"我们建议""关键洞察是"这种主语
+- 避免: 学术化的长句、模棱两可的表达("可能""或许"要慎用)
+""",
+    "analyst": """\
+【你的身份】Senior Analyst(高级分析师)
+- 你是团队里做数据和证据的人
+- 语气: 严谨、客观、引用充分
+- 偏重: 具体数字、来源、细分市场、趋势对比
+- 写作风格: 先铺设背景再得出结论,大量引用 Agent 言论作为证据
+- 每个数字都应该能追溯到某次工具调用的返回
+""",
+    "risk_officer": """\
+【你的身份】Chief Risk Officer(首席风险官)
+- 你的职业本能是找出什么会出错
+- 语气: 审慎、量化、结构化
+- 偏重: 识别风险源、估计概率 × 影响、列出缓解方案
+- 写作风格: 用结构化列表(或 markdown 表格),每个风险有"风险描述 / 概率 / 影响 / 缓解"
+  四个字段
+- 不要只列风险,还要给 mitigation
+""",
+    "finance": """\
+【你的身份】Finance Analyst(财务分析师)
+- 你用数字和模型说话
+- 语气: 定量、精确
+- 偏重: 估值、现金流、敏感性、比较 peers
+- 写作风格: 段落里有具体数字区间(比如 "$X-$Y M"),每个数字带置信区间或来源
+""",
+    "policy": """\
+【你的身份】Policy Analyst(政策分析师)
+- 你关心监管意图和合规边界
+- 语气: 中性、平衡、考虑多方立场
+- 偏重: 政策工具、利益相关者反应、合规路径
+- 写作风格: 呈现多方观点后给出中性判断
+""",
+}
+
+
+def _role_guidance(role: str) -> str:
+    """Fetch role-specific guidance string or fall back to analyst."""
+    return ROLE_GUIDANCE.get(role, ROLE_GUIDANCE["analyst"])
+
+
+# Description of the chart placeholder system — the LLM learns to embed
+# [[chart:xxx]] markers in its markdown output, which the frontend parses
+# at display time and renders as inline canvas charts.
+CHART_PLACEHOLDER_GUIDANCE = """\
+═══════════════════════════════════════════════════════════════
+【图表嵌入 - 咨询报告的标配】
+═══════════════════════════════════════════════════════════════
+
+报告会被前端渲染,你可以在本章节的 markdown 中插入图表占位符:
+
+    [[chart:gdp]]
+    [[chart:industry]]
+    [[chart:flow]]
+    [[chart:heatmap]]
+    [[chart:sentiment]]
+
+每个占位符**独占一行**,前端看到后会在那个位置画一张对应的图。
+
+【5 个可用图表】
+- `gdp`       : 时间序列折线图(随模拟回合演化的趋势)
+                 用于: Exec Summary / Scenario Analysis
+- `industry`  : 行业影响条形图
+                 用于: Core Findings / Exec Summary
+- `flow`      : 地区/国家来源饼图
+                 用于: Situation Assessment / Core Findings
+- `heatmap`   : 地理热力图(只在场景有地理维度时有意义)
+                 用于: Situation Assessment
+- `sentiment` : 情绪演化曲线
+                 用于: Risk Register / Core Findings
+
+【使用规则】
+1. 本章节的 `expected_charts` 列表(下方会告诉你)= 建议嵌入的图表 ID
+   你应该嵌入全部 expected_charts 中的图表,必要时可以加 1 个额外的
+2. 在图表占位符前后要有 1-2 段文字解释"为什么要看这张图"
+3. 图表下方接 1-2 段 takeaway(从图表解读出的结论)
+4. 禁止编造数据 —— 你只需要写占位符,真实数字由前端从 analytics 数据渲染
+
+【标准的"图表 + 解读"段落格式】
+```
+在营收结构方面,住宿和航空是影响最大的两个行业:
+
+[[chart:industry]]
+
+数据显示,住宿行业的影响高达 $125M,是第二名航空的 1.67 倍。
+这主要源于酒店入住率飙升至 92.7% 的峰值(见 Agent 原始评论)。
+```
+"""
+
 
 SECTION_SYSTEM_PROMPT_TEMPLATE = """\
 ═══════════════════════════════════════════════════════════════
@@ -625,24 +810,29 @@ SECTION_SYSTEM_PROMPT_TEMPLATE = """\
 
 ═══════════════════════════════════════════════════════════════
 
-你是一个「未来预测报告」的撰写专家，正在撰写报告的一个章节。
+你正在为一家顶级管理咨询公司撰写报告的一个章节。
 
 报告标题: {report_title}
 报告摘要: {report_summary}
-当前要撰写的章节: {section_title}
+当前章节: {section_title}
+本章 expected_charts: {expected_charts_str}
+
+{role_guidance}
 
 ═══════════════════════════════════════════════════════════════
 【核心理念】
 ═══════════════════════════════════════════════════════════════
 
 模拟世界是对预测需求的预演。我们向模拟世界注入了"{simulation_requirement}"
-作为核心变量，模拟中Agent的行为和互动，就是对未来人群在这个特定场景下
+作为核心变量,模拟中 Agent 的行为和互动,就是对未来人群在这个特定场景下
 会如何反应的预测。
 
-你的任务是：
-- 揭示在"{simulation_requirement}"这个场景下，未来发生了什么
-- 预测各类人群（Agent）在这个场景下是如何反应和行动的
-- 发现值得关注的未来趋势、风险和机会——必须直接回答预测需求
+你的任务是:
+- 揭示在"{simulation_requirement}"这个场景下,未来发生了什么
+- 预测各类人群(Agent)在这个场景下是如何反应和行动的
+- 发现值得关注的未来趋势、风险和机会 —— 必须直接回答预测需求
+
+{chart_placeholder_guidance}
 
 ❌ 不要写成对现实世界现状的分析
 ✅ 要聚焦于"未来会怎样"——模拟结果就是预测的未来
@@ -1222,36 +1412,52 @@ class ReportAgent:
             if progress_callback:
                 progress_callback("planning", 80, t('progress.parsingOutline'))
             
-            # 解析大纲
+            # 解析大纲 — consulting template schema with role + expected_charts
+            valid_charts = {"gdp", "industry", "flow", "heatmap", "sentiment"}
+            valid_roles = {"strategist", "analyst", "risk_officer", "finance", "policy"}
             sections = []
             for section_data in response.get("sections", []):
+                role = section_data.get("role", "analyst")
+                if role not in valid_roles:
+                    role = "analyst"
+                charts = section_data.get("expected_charts") or []
+                if not isinstance(charts, list):
+                    charts = []
+                charts = [c for c in charts if c in valid_charts]
                 sections.append(ReportSection(
                     title=section_data.get("title", ""),
-                    content=""
+                    content="",
+                    role=role,
+                    expected_charts=charts,
                 ))
-            
+
             outline = ReportOutline(
                 title=response.get("title", "模拟分析报告"),
                 summary=response.get("summary", ""),
                 sections=sections
             )
-            
+
             if progress_callback:
                 progress_callback("planning", 100, t('progress.outlinePlanComplete'))
-            
+
             logger.info(t('report.outlinePlanDone', count=len(sections)))
             return outline
-            
+
         except Exception as e:
             logger.error(t('report.outlinePlanFailed', error=str(e)))
-            # 返回默认大纲（3个章节，作为fallback）
+            # Fallback: the full 6-section consulting template with
+            # sensible role / chart defaults so the UI still gets
+            # a well-structured report even if the LLM planning call fails.
             return ReportOutline(
-                title="未来预测报告",
-                summary="基于模拟预测的未来趋势与风险分析",
+                title="分析报告",
+                summary="基于多智能体模拟的咨询式分析报告",
                 sections=[
-                    ReportSection(title="预测场景与核心发现"),
-                    ReportSection(title="人群行为预测分析"),
-                    ReportSection(title="趋势展望与风险提示")
+                    ReportSection(title="Executive Summary",   role="strategist",   expected_charts=["gdp"]),
+                    ReportSection(title="Situation Assessment", role="analyst",     expected_charts=["flow"]),
+                    ReportSection(title="Core Findings",        role="analyst",     expected_charts=["industry", "sentiment"]),
+                    ReportSection(title="Scenario Analysis",    role="strategist",  expected_charts=["gdp"]),
+                    ReportSection(title="Risk Register",        role="risk_officer", expected_charts=["sentiment"]),
+                    ReportSection(title="Recommendations",      role="strategist",  expected_charts=[]),
                 ]
             )
     
@@ -1289,12 +1495,20 @@ class ReportAgent:
         if self.report_logger:
             self.report_logger.log_section_start(section.title, section_index)
         
+        expected_charts_str = (
+            ", ".join(section.expected_charts)
+            if section.expected_charts
+            else "(本章节无必嵌图表)"
+        )
         system_prompt = SECTION_SYSTEM_PROMPT_TEMPLATE.format(
             report_title=outline.title,
             report_summary=outline.summary,
             simulation_requirement=self.simulation_requirement,
             section_title=section.title,
             tools_description=self._get_tools_description(),
+            role_guidance=_role_guidance(section.role),
+            expected_charts_str=expected_charts_str,
+            chart_placeholder_guidance=CHART_PLACEHOLDER_GUIDANCE,
         )
         system_prompt = f"{system_prompt}\n\n{get_language_instruction()}"
 
