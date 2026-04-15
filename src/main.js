@@ -4,7 +4,6 @@ import './style.css';
 import { createLanding } from './screens/landing.js';
 import { createInput } from './screens/input.js';
 import { createAgents } from './screens/agents.js';
-import { createSimulation } from './screens/simulation.js';
 import { createAnalytics } from './screens/analytics.js';
 import { createReport } from './screens/report.js';
 
@@ -24,13 +23,11 @@ navbar.innerHTML = `
     <div class="navbar__step-line"></div>
     <button class="navbar__step" data-screen="1"><span class="navbar__step-dot"></span> Scenario</button>
     <div class="navbar__step-line"></div>
-    <button class="navbar__step" data-screen="2"><span class="navbar__step-dot"></span> World Build</button>
+    <button class="navbar__step" data-screen="2"><span class="navbar__step-dot"></span> Simulation</button>
     <div class="navbar__step-line"></div>
-    <button class="navbar__step" data-screen="3"><span class="navbar__step-dot"></span> Simulation</button>
+    <button class="navbar__step" data-screen="3"><span class="navbar__step-dot"></span> Analytics</button>
     <div class="navbar__step-line"></div>
-    <button class="navbar__step" data-screen="4"><span class="navbar__step-dot"></span> Analytics</button>
-    <div class="navbar__step-line"></div>
-    <button class="navbar__step" data-screen="5"><span class="navbar__step-dot"></span> Report</button>
+    <button class="navbar__step" data-screen="4"><span class="navbar__step-dot"></span> Report</button>
   </div>
   <div class="navbar__actions">
     <button class="btn btn--ghost btn--sm" style="font-family: var(--font-mono); font-size: 11px;">v1.0</button>
@@ -76,14 +73,13 @@ function goToScreen(index) {
 }
 
 function init() {
-  const landing = createLanding(() => goToScreen(1));
-  const input = createInput(() => goToScreen(2));
-  const agents = createAgents(() => goToScreen(3));
-  const simulation = createSimulation(() => goToScreen(4));
-  const analytics = createAnalytics(() => goToScreen(5));
-  const report = createReport();
+  const landing   = createLanding(() => goToScreen(1));
+  const input     = createInput(() => goToScreen(2));
+  const agents    = createAgents(() => goToScreen(3));
+  const analytics = createAnalytics(() => goToScreen(4));
+  const report    = createReport();
 
-  screens.push(landing, input, agents, simulation, analytics, report);
+  screens.push(landing, input, agents, analytics, report);
 
   setTimeout(() => {
     const restartBtn = report.querySelector('#btn-restart');
@@ -93,40 +89,36 @@ function init() {
     });
   }, 100);
 
-  // Real-mode input screen dispatches this event after pipeline completes.
-  // Load the project's data into ALL data-driven screens so the user can
-  // walk through agents → simulation → analytics → report and see THEIR
-  // data on every screen, not just the report.
+  // Real-mode input screen dispatches this event after the pipeline
+  // completes. Hydrate every data-driven screen and jump to agents so
+  // the user walks through the full visualization of THEIR data.
   function loadProjectIntoAllScreens(projectId) {
     if (!projectId) return;
     screens.forEach(s => s._animated = false);
-    // Fire-and-forget — each screen fetches independently so they can fail
-    // in isolation without breaking the others.
-    if (agents._loadProject)     agents._loadProject(projectId);
-    if (simulation._loadProject) simulation._loadProject(projectId);
-    if (analytics._loadProject)  analytics._loadProject(projectId);
-    if (report._loadProject)     report._loadProject(projectId);
+    if (agents._loadProject)    agents._loadProject(projectId);
+    if (analytics._loadProject) analytics._loadProject(projectId);
+    if (report._loadProject)    report._loadProject(projectId);
   }
 
   window.addEventListener('loka:navigate-to-report', (e) => {
     const projectId = e.detail && e.detail.projectId;
     loadProjectIntoAllScreens(projectId);
-    // Start the user at the agents screen so they walk through the full
-    // visualization, instead of jumping straight to the report.
+    // Start at the agents screen (index 2) — the user walks through
+    // agents → analytics → report.
     goToScreen(2);
   });
 
-  // If the page loads with #report?project=xxx (or any screen?project=xxx)
-  // already in the URL, hydrate everything and jump to that screen.
+  // If the page loads with #agents?project=xxx / #analytics?project=xxx /
+  // #report?project=xxx already in the URL, hydrate and jump.
   if (window.location.hash) {
-    const hashScreens = { '#agents': 2, '#simulation': 3, '#analytics': 4, '#report': 5 };
+    const hashScreens = { '#agents': 2, '#analytics': 3, '#report': 4 };
     const screenKey = Object.keys(hashScreens).find(k => window.location.hash.startsWith(k));
     const m = window.location.hash.match(/project=([^&]+)/);
     if (m && m[1]) {
       const pid = decodeURIComponent(m[1]);
       setTimeout(() => {
         loadProjectIntoAllScreens(pid);
-        goToScreen(hashScreens[screenKey] ?? 5);
+        goToScreen(hashScreens[screenKey] ?? 4);
       }, 150);
     }
   }

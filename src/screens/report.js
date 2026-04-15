@@ -1,21 +1,36 @@
 // Report — Two-column: academic paper (left) + AI chat (right)
+//
+// Peter-jim's visual paper template preserved for demo mode. In real
+// mode (_loadProject called with a project id), the paper is swapped to
+// the consulting-template layout with per-section role badges and
+// inline chart placeholders.
 
 import { reportContent as staticReportContent } from '../data/report.js';
 import { delay } from '../utils/animation.js';
 import { fetchProjectData, adaptReportForFrontend } from '../lib/project_client.js';
 import { renderInlineChart, CHART_TITLES } from '../components/inline-charts.js';
 
-// The screen starts out rendering the static Taylor Swift snapshot. If
-// createReport's `_loadProject(id)` hook is called later, we fetch the
-// project from the backend and swap the rendered content in place.
+// Mutable so _loadProject can swap to a backend-fetched consulting report.
 let reportContent = staticReportContent;
-// Analytics payload cached from the most recent _loadProject call, so
-// inline chart placeholders in the report body can render without a
-// second network round trip.
+// Analytics payload cached from the most recent _loadProject call, used
+// to render [[chart:xxx]] inline placeholders without a second fetch.
 let cachedAnalytics = null;
+// Conversation history for the real LLM chat. Pushed/popped as the user
+// interacts; the full array is POSTed to /api/chat/stream each turn.
+const chatHistory = [];
+// The currently-loaded project id (null in demo mode) — used by the
+// Download Markdown button to build the correct URL.
+let currentProjectId = null;
 
-// Human-readable labels for the role badges shown at the top of each
-// consulting-template section.
+// Suggested questions seeding the chat; content comes from the LLM at runtime.
+const chatSuggestionQuestions = [
+  'Summarize the key findings',
+  'What are the main risks?',
+  'How does this compare to actual results?',
+  'Explain the methodology',
+];
+
+// Role badge labels for consulting-template sections (real mode).
 const ROLE_LABELS = {
   strategist: 'Strategy Partner',
   analyst: 'Senior Analyst',
@@ -30,17 +45,13 @@ const ROLE_COLORS = {
   finance: '#D9730D',
   policy: '#6940A5',
 };
-// The currently-loaded project id (null in demo mode) — used by the
-// Download Markdown button to build the correct URL.
-let currentProjectId = null;
 
-// Suggested questions that seed the chat — content comes from the LLM at runtime.
-const chatSuggestionQuestions = [
-  'Summarize the key findings',
-  'What are the main risks?',
-  'How does this compare to actual results?',
-  'Explain the methodology',
-];
+const SYSTEM_PROMPT =
+  'You are Loka AI, an analyst embedded in the Loka research report. ' +
+  "Answer the user's questions using the REPORT CONTEXT below. " +
+  'Cite specific numbers, sections, or findings whenever possible. ' +
+  'Keep answers under 250 words unless the user asks for more detail. ' +
+  'If the report does not contain the answer, say so plainly.';
 
 // Strip HTML tags so the report context stays compact and LLM-friendly.
 function stripHtml(s) {
@@ -48,15 +59,13 @@ function stripHtml(s) {
 }
 
 // Build a compact text version of the report to use as LLM context.
-// We keep the abstract in full but trim each section body to ~600 chars
-// so the system prompt does not blow past the model's context window.
 function buildReportContext() {
   const parts = [];
-  parts.push(`TITLE: ${reportContent.title}`);
+  parts.push(`TITLE: ${reportContent.title || ''}`);
   if (reportContent.subtitle) parts.push(`SUBTITLE: ${reportContent.subtitle}`);
   parts.push(`\nABSTRACT:\n${stripHtml(reportContent.abstract)}`);
   parts.push(`\nSECTIONS:`);
-  for (const s of reportContent.sections) {
+  for (const s of (reportContent.sections || [])) {
     const body = stripHtml(s.body);
     const trimmed = body.length > 600 ? body.slice(0, 600) + '…' : body;
     parts.push(`\n[${s.num}] ${s.title}\n${trimmed}`);
@@ -67,25 +76,10 @@ function buildReportContext() {
   return parts.join('\n');
 }
 
-// Conversation history for this chat session. Pushed/popped as the user
-// interacts; the full array is sent to /api/chat/stream each turn so the
-// LLM remembers prior messages.
-const chatHistory = [];
-
-const SYSTEM_PROMPT =
-  'You are Loka AI, an analyst embedded in the Loka research report. ' +
-  "Answer the user's questions using the REPORT CONTEXT below. " +
-  'Cite specific numbers, sections, or findings whenever possible. ' +
-  'Keep answers under 250 words unless the user asks for more detail. ' +
-  'If the report does not contain the answer, say so plainly.';
-
 /**
  * Stream a chat response from /api/chat/stream and call onDelta(text)
  * for every text fragment. Returns a promise that resolves to the full
  * concatenated reply when the stream finishes.
- *
- * The user's message is appended to chatHistory before sending; the
- * assistant reply is appended on success.
  */
 async function streamChatApi(userMessage, { onFirstDelta, onDelta }) {
   chatHistory.push({ role: 'user', content: userMessage });
@@ -95,8 +89,6 @@ async function streamChatApi(userMessage, { onFirstDelta, onDelta }) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       messages: chatHistory,
-      // Rebuild context each turn so that _loadProject can swap the
-      // underlying report and the chat will see the new content.
       context: buildReportContext(),
       system: SYSTEM_PROMPT,
     }),
@@ -116,13 +108,11 @@ async function streamChatApi(userMessage, { onFirstDelta, onDelta }) {
     if (done) break;
     buf += decoder.decode(value, { stream: true });
 
-    // SSE events are separated by a blank line. Process each complete event.
     let sep;
     while ((sep = buf.indexOf('\n\n')) !== -1) {
       const eventBlock = buf.slice(0, sep);
       buf = buf.slice(sep + 2);
 
-      // Each line within may start with "data: ". Concat data lines.
       const dataLines = eventBlock
         .split('\n')
         .filter((l) => l.startsWith('data:'))
@@ -151,7 +141,6 @@ async function streamChatApi(userMessage, { onFirstDelta, onDelta }) {
     }
   }
 
-  // Stream ended without an explicit done marker — still commit history.
   if (full) chatHistory.push({ role: 'assistant', content: full });
   return full;
 }
@@ -187,6 +176,29 @@ export function createReport() {
           <div class="report-paper-authors">Loka World Model Engine v1.0 · Autonomous Multi-Agent Simulation</div>
         </div>
 
+        <div class="report-key-metrics" data-reveal>
+          <div class="report-key-metric">
+            <div class="report-key-metric__label">Tourism Receipts</div>
+            <div class="report-key-metric__value report-key-metric__value--blue">S$350–450M</div>
+            <div class="report-key-metric__sub">80% CI: [S$310M, S$480M]</div>
+          </div>
+          <div class="report-key-metric">
+            <div class="report-key-metric__label">GDP Impact</div>
+            <div class="report-key-metric__value report-key-metric__value--green">+0.25pp</div>
+            <div class="report-key-metric__sub">Q1 2024 Growth</div>
+          </div>
+          <div class="report-key-metric">
+            <div class="report-key-metric__label">Hotel Occupancy</div>
+            <div class="report-key-metric__value report-key-metric__value--purple">79.1%</div>
+            <div class="report-key-metric__sub">Peak: 92.7% (CoStar)</div>
+          </div>
+          <div class="report-key-metric">
+            <div class="report-key-metric__label">Overseas Attendees</div>
+            <div class="report-key-metric__value report-key-metric__value--orange">~70%</div>
+            <div class="report-key-metric__sub">of 300K+ total</div>
+          </div>
+        </div>
+
         <div class="report-toc" data-reveal>
           <div class="report-toc__title">Table of Contents</div>
           <div class="report-toc__items">
@@ -213,7 +225,7 @@ export function createReport() {
 
         ${reportContent.sections.map(s => `
           <div class="report-section" data-reveal id="section-${s.num}">
-            <div class="report-section__title"><span class="mono" style="margin-right: 8px;">${s.num}.</span>${s.title}</div>
+            <div class="report-section__title"><span class="mono">${s.num}</span>${s.title}</div>
             <div class="report-section__body">${s.body}</div>
           </div>
         `).join('')}
@@ -231,14 +243,18 @@ export function createReport() {
         </div>
 
         <div class="report-actions anim-fade-up">
-          <button class="btn btn--primary" id="btn-download-md">Download Markdown</button>
-          <button class="btn btn--secondary" id="btn-export-pdf">Export PDF</button>
+          <button class="btn btn--primary" id="btn-export-pdf">Export PDF</button>
+          <button class="btn btn--secondary">Share Report</button>
           <button class="btn btn--secondary" id="btn-restart">New Analysis</button>
         </div>
 
-        <div style="text-align:center;padding:32px 0 16px;color:var(--text-muted);font-size:11px;">
-          Generated by Loka World Model Engine v1.0 · ${reportContent.date}<br/>
-          © 2026 Loka. All rights reserved.
+        <div style="text-align:center;padding:32px 0 16px;">
+          <div style="width:80px;height:3px;background:linear-gradient(90deg,#2383E2,#0F7B6C,#6940A5);border-radius:2px;margin:0 auto 16px;"></div>
+          <div style="color:var(--text-muted);font-size:11px;line-height:1.8;">
+            Generated by <strong style="color:var(--text-secondary);">Loka World Model Engine v1.0</strong> · ${reportContent.date}<br/>
+            Multi-Agent Swarm Simulation × Quantitative Economic Analysis<br/>
+            © 2026 Loka. All rights reserved.
+          </div>
         </div>
       </div>
 
@@ -280,7 +296,7 @@ export function createReport() {
     });
   });
 
-  // Export PDF (placeholder — stays as the cosmetic button it's always been)
+  // Export
   el.querySelector('#btn-export-pdf').addEventListener('click', () => {
     const btn = el.querySelector('#btn-export-pdf');
     btn.textContent = '✓ Exported';
@@ -288,79 +304,30 @@ export function createReport() {
     setTimeout(() => { btn.textContent = 'Export PDF'; btn.disabled = false; }, 2000);
   });
 
-  // Download Markdown — extracted into a function so _loadProject can
-  // re-bind it after the paper div is rebuilt from new reportContent.
-  async function handleDownloadMd() {
-    const btn = el.querySelector('#btn-download-md');
-    if (!btn) return;
-    const origText = btn.textContent;
-    btn.textContent = 'Downloading...';
-    btn.disabled = true;
-    try {
-      let blob;
-      let filename;
-      if (currentProjectId) {
-        const res = await fetch(`/api/project/${encodeURIComponent(currentProjectId)}/report_md`);
-        if (!res.ok) throw new Error(`${res.status}`);
-        blob = await res.blob();
-        filename = `loka-${currentProjectId}.md`;
-      } else {
-        // Demo-mode fallback: synthesize markdown from reportContent
-        const lines = [];
-        lines.push(`# ${reportContent.title || 'Loka Report'}`);
-        if (reportContent.subtitle) lines.push(`\n_${reportContent.subtitle}_`);
-        lines.push(`\n## Abstract\n${htmlToText(reportContent.abstract || '')}`);
-        for (const s of (reportContent.sections || [])) {
-          lines.push(`\n## ${s.num}. ${s.title}\n${htmlToText(s.body || '')}`);
-        }
-        blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
-        filename = 'loka-demo-report.md';
-      }
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      btn.textContent = '✓ Downloaded';
-      setTimeout(() => { btn.textContent = origText; btn.disabled = false; }, 2000);
-    } catch (err) {
-      btn.textContent = `Failed: ${err.message}`;
-      setTimeout(() => { btn.textContent = origText; btn.disabled = false; }, 3000);
-    }
-  }
-  el.querySelector('#btn-download-md').addEventListener('click', handleDownloadMd);
-
-  // Chat functionality — calls real backend LLM (/api/chat) with conversation history.
+  // Chat functionality
+  // Chat — calls real backend LLM (/api/chat/stream) with conversation history.
   async function sendChat(question) {
     const messagesEl = el.querySelector('#report-chat-messages');
 
-    // User message
     const userMsg = document.createElement('div');
     userMsg.className = 'report-chat__msg report-chat__msg--user';
-    userMsg.innerHTML = `
-      <div class="report-chat__msg-content">${question}</div>
-    `;
+    userMsg.innerHTML = `<div class="report-chat__msg-content">${question}</div>`;
     messagesEl.appendChild(userMsg);
     messagesEl.scrollTop = messagesEl.scrollHeight;
 
-    // Build thinking steps — animated while the LLM call is in-flight.
     const svgDoc = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
     const svgTable = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/></svg>';
     const svgCheck = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="m9 12 2 2 4-4"/></svg>';
     const svgRuler = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>';
     const svgPen = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
     const thinkingSteps = [
-      { icon: svgDoc, text: 'Scanning report sections & appendices...' },
+      { icon: svgDoc,   text: 'Scanning report sections & appendices...' },
       { icon: svgTable, text: 'Retrieving relevant data tables & figures...' },
-      { icon: svgCheck, text: 'Cross-validating with simulation logs (120 rounds)...' },
+      { icon: svgCheck, text: 'Cross-validating with simulation logs...' },
       { icon: svgRuler, text: 'Checking confidence intervals & sensitivity ranges...' },
-      { icon: svgPen, text: 'Composing response...' },
+      { icon: svgPen,   text: 'Composing response...' },
     ];
 
-    // Create thinking container
     const thinkingEl = document.createElement('div');
     thinkingEl.className = 'report-chat__msg report-chat__msg--ai';
     thinkingEl.innerHTML = `
@@ -381,8 +348,6 @@ export function createReport() {
 
     const stepsContainer = thinkingEl.querySelector('.chat-thinking-flow__steps');
 
-    // Reveal thinking steps with a steady cadence until the first token
-    // arrives from the LLM. Then the thinking element gets replaced.
     let cancelSteps = false;
     (async () => {
       for (let i = 0; i < thinkingSteps.length; i++) {
@@ -401,14 +366,12 @@ export function createReport() {
       }
     })();
 
-    // The streaming AI message bubble is created lazily on the first delta.
     let aiMsg = null;
     let textEl = null;
 
     const onFirstDelta = () => {
       cancelSteps = true;
       thinkingEl.remove();
-
       aiMsg = document.createElement('div');
       aiMsg.className = 'report-chat__msg report-chat__msg--ai';
       aiMsg.innerHTML = `
@@ -469,13 +432,17 @@ export function createReport() {
       section.style.transition = 'all 0.35s ease';
       await delay(100);
     }
-    drawMiniChart(el.querySelector('#report-mini-chart'));
+    const miniCanvas = el.querySelector('#report-mini-chart');
+    if (miniCanvas) drawMiniChart(miniCanvas);
+    // Hydrate any inline chart placeholders that the real-mode consulting
+    // template paper might have inserted.
+    hydrateInlineCharts(el.querySelector('#report-paper'), cachedAnalytics);
   };
 
   /**
-   * Swap the report content to one fetched from /api/project/<id>/data.
-   * Called by main.js when the user completes a real-mode pipeline run.
-   * Falls back to showing an error banner inside the paper div if fetch fails.
+   * Real-mode hook — fetch /api/project/<id>/data, swap the paper
+   * innerHTML to the consulting-template layout with role badges and
+   * inline chart placeholders, then hydrate charts and reset chat.
    */
   el._loadProject = async (projectId) => {
     if (!projectId) return;
@@ -491,25 +458,24 @@ export function createReport() {
     try {
       const data = await fetchProjectData(projectId);
       const adapted = adaptReportForFrontend(data);
-      // Update module-level var so chat context uses the fresh report
       reportContent = adapted;
-      // Cache analytics so inline chart placeholders can render without
-      // a second fetch round trip.
       cachedAnalytics = data.analytics || null;
-      // Reset chat history — it was about the previous report
       chatHistory.length = 0;
 
-      // Re-render the paper div from the new reportContent
-      paperEl.innerHTML = buildPaperHtml(reportContent);
+      // Re-render the paper div using the consulting-template layout
+      paperEl.innerHTML = buildConsultingPaperHtml(reportContent);
 
-      // Render inline chart placeholders ([[chart:xxx]]) from the body
+      // Hydrate the [[chart:xxx]] inline placeholders
       hydrateInlineCharts(paperEl, cachedAnalytics);
 
-      // Re-bind the Download Markdown button (innerHTML wiped the handler)
-      const dlBtn = paperEl.querySelector('#btn-download-md');
-      if (dlBtn) dlBtn.addEventListener('click', handleDownloadMd);
+      // Re-bind the restart button (innerHTML wiped the handler)
+      const restart = paperEl.querySelector('#btn-restart');
+      if (restart) restart.addEventListener('click', () => {
+        window.location.hash = '';
+        window.location.reload();
+      });
 
-      // Re-bind TOC clicks (innerHTML wiped the handlers)
+      // Re-bind TOC clicks
       paperEl.querySelectorAll('.report-toc__item').forEach(item => {
         item.addEventListener('click', (e) => {
           e.preventDefault();
@@ -518,14 +484,13 @@ export function createReport() {
         });
       });
 
-      // Animate reveal
-      const sections = paperEl.querySelectorAll('[data-reveal]');
-      for (const section of sections) {
+      // Reveal all sections immediately
+      paperEl.querySelectorAll('[data-reveal]').forEach(section => {
         section.classList.add('visible');
         section.style.opacity = '1';
         section.style.transform = 'translateY(0)';
         section.style.transition = 'all 0.35s ease';
-      }
+      });
 
       // Reset chat panel to a fresh greeting
       const messagesEl = el.querySelector('#report-chat-messages');
@@ -551,23 +516,13 @@ export function createReport() {
   return el;
 }
 
-/** Strip HTML tags for plain-text markdown fallback. */
-function htmlToText(html) {
-  if (!html) return '';
-  const tmp = document.createElement('div');
-  tmp.innerHTML = html;
-  return (tmp.textContent || tmp.innerText || '').trim();
-}
-
 /**
- * Build the inner HTML of the report paper div from a reportContent object.
- * Extracted so _loadProject can re-render the same template with new data.
- *
- * In consulting-template mode each section carries a `role` field; we
- * render a coloured badge above the section title so the reader can see
- * which analyst "wrote" the section.
+ * Build the consulting-template paper HTML for real-mode reports.
+ * Each section gets a coloured role badge above its title, and
+ * [[chart:xxx]] placeholders in the body are kept as divs that
+ * hydrateInlineCharts will render into canvases.
  */
-function buildPaperHtml(content) {
+function buildConsultingPaperHtml(content) {
   const sectionHtml = (s) => {
     const role = s.role;
     const badge = role && ROLE_LABELS[role]
@@ -621,7 +576,6 @@ function buildPaperHtml(content) {
     ${(content.sections || []).map(sectionHtml).join('')}
 
     <div class="report-actions anim-fade-up">
-      <button class="btn btn--primary" id="btn-download-md">Download Markdown</button>
       <button class="btn btn--secondary" id="btn-restart">New Analysis</button>
     </div>
   `;
@@ -638,12 +592,13 @@ function hydrateInlineCharts(paperEl, analytics) {
   placeholders.forEach((div) => {
     const chartId = div.dataset.chart;
     if (!chartId) return;
+    // Skip if already hydrated (caption + canvas children present)
+    if (div.querySelector('canvas')) return;
     div.innerHTML = `
       <div class="inline-chart__caption">Figure — ${CHART_TITLES[chartId] || chartId}</div>
       <canvas class="inline-chart__canvas"></canvas>
     `;
     const canvas = div.querySelector('canvas');
-    // Defer draw one frame so the canvas has layout-computed dimensions.
     requestAnimationFrame(() => {
       try {
         renderInlineChart(chartId, canvas, analytics);
@@ -665,15 +620,15 @@ function drawMiniChart(canvas) {
   const ctx = canvas.getContext('2d');
   ctx.scale(devicePixelRatio, devicePixelRatio);
 
-  const data = [100, 105, 118, 145, 210, 178, 142, 120, 112];
-  const upper = [100, 112, 135, 170, 245, 210, 168, 140, 128];
-  const lower = [100, 98, 102, 120, 175, 148, 118, 102, 98];
-  const baseline = [100, 101, 102, 103, 104, 105, 106, 107, 108];
+  const data = [100, 102, 108, 126, 182, 145, 120, 108, 104];
+  const upper = [100, 106, 118, 142, 210, 168, 135, 118, 112];
+  const lower = [100, 98, 100, 114, 158, 128, 108, 100, 97];
+  const baseline = [100, 100.3, 100.6, 100.8, 101, 101.2, 101, 100.8, 101];
   const labels = ['W-4', 'W-3', 'W-2', 'W-1', 'Event', 'W+1', 'W+2', 'W+3', 'W+4'];
   const pad = { top: 16, right: 20, bottom: 28, left: 40 };
   const cw = w - pad.left - pad.right;
   const ch = h - pad.top - pad.bottom;
-  const maxVal = 260, minVal = 85;
+  const maxVal = 230, minVal = 85;
 
   const getX = (i) => pad.left + (cw / (data.length - 1)) * i;
   const getY = (v) => pad.top + ch - ((v - minVal) / (maxVal - minVal)) * ch;
@@ -704,5 +659,5 @@ function drawMiniChart(canvas) {
   });
 
   ctx.font = '10px JetBrains Mono'; ctx.fillStyle = '#2383E2'; ctx.textAlign = 'center';
-  ctx.fillText('+102% GDP uplift', getX(4), getY(210) - 10);
+  ctx.fillText('+80% GDP uplift at peak', getX(4), getY(182) - 10);
 }

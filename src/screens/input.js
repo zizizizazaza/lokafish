@@ -3,10 +3,8 @@
 // Two submission modes:
 //   demo   → jump to pre-baked Taylor Swift snapshot (original behavior)
 //   real   → POST /api/project/run, poll, navigate to ?project=<id>
-//
-// onSubmit is the legacy demo-mode callback (invoked with no args).
 
-import { startPipeline, startPipelineMultipart, pollPipeline, listProjects } from '../lib/project_client.js';
+import { startPipeline, pollPipeline } from '../lib/project_client.js';
 
 export function createInput(onSubmit) {
   const el = document.createElement('div');
@@ -38,11 +36,9 @@ export function createInput(onSubmit) {
         </div>
 
         <div class="input-screen__upload" id="upload-area">
-          <input type="file" id="upload-file-input" accept=".pdf,.md,.txt,.csv,.json" style="display:none;" />
           <div style="font-size: 28px; margin-bottom: 6px; opacity: 0.4;">↑</div>
-          <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 4px;">Drop a file here or click to browse</div>
-          <div>Supports PDF, Markdown, TXT, CSV, JSON — Max 10MB</div>
-          <div id="upload-file-info" style="display:none;margin-top:10px;padding:8px 12px;background:var(--bg-subtle);border-radius:6px;font-size:12px;"></div>
+          <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 4px;">Drop files here or click to browse</div>
+          <div>Supports PDF, CSV, XLSX, JSON — Max 50MB per file</div>
         </div>
 
         <!-- ADVANCED SETTINGS PANEL -->
@@ -186,14 +182,8 @@ export function createInput(onSubmit) {
       </div>
 
       <div class="input-screen__sidebar anim-fade-up delay-2">
-        <!-- Your past projects (populated at mount time from /api/project/list) -->
-        <div class="input-screen__recent" id="recent-projects" style="display:none;margin-bottom:20px;">
-          <div class="input-screen__sidebar-title">Your Projects</div>
-          <div id="recent-projects-list"></div>
-        </div>
-
         <div class="input-screen__sidebar-title">Example Scenarios</div>
-
+        
         <div class="input-screen__scenario-card" data-scenario="Predict the economic impact of Taylor Swift's Eras Tour concert series in Singapore. Analyze effects on tourism, hospitality, aviation, and GDP.">
           <div class="tag">Entertainment</div>
           <div><strong>Taylor Swift Eras Tour × Singapore</strong></div>
@@ -234,54 +224,6 @@ export function createInput(onSubmit) {
     el.querySelector('#upload-area').classList.toggle('visible', this.classList.contains('on'));
   });
 
-  // File upload — wire the dropzone + hidden <input type=file>
-  let uploadedFile = null;
-  const uploadArea = el.querySelector('#upload-area');
-  const fileInput = el.querySelector('#upload-file-input');
-  const fileInfoEl = el.querySelector('#upload-file-info');
-
-  function setUploadedFile(f) {
-    if (!f) {
-      uploadedFile = null;
-      fileInfoEl.style.display = 'none';
-      fileInfoEl.textContent = '';
-      return;
-    }
-    if (f.size > 10 * 1024 * 1024) {
-      fileInfoEl.style.display = 'block';
-      fileInfoEl.style.color = '#c33';
-      fileInfoEl.textContent = `"${f.name}" is ${(f.size / 1024 / 1024).toFixed(1)}MB — max is 10MB`;
-      uploadedFile = null;
-      return;
-    }
-    uploadedFile = f;
-    fileInfoEl.style.display = 'block';
-    fileInfoEl.style.color = 'var(--text-secondary)';
-    fileInfoEl.innerHTML = `<strong>${f.name}</strong> · ${(f.size / 1024).toFixed(1)} KB <span style="float:right;cursor:pointer;color:var(--accent);" id="clear-upload">✕</span>`;
-    fileInfoEl.querySelector('#clear-upload').addEventListener('click', (e) => {
-      e.stopPropagation();
-      fileInput.value = '';
-      setUploadedFile(null);
-    });
-  }
-
-  uploadArea.addEventListener('click', () => fileInput.click());
-  fileInput.addEventListener('change', () => {
-    if (fileInput.files && fileInput.files[0]) setUploadedFile(fileInput.files[0]);
-  });
-  uploadArea.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    uploadArea.style.borderColor = 'var(--accent)';
-  });
-  uploadArea.addEventListener('dragleave', () => {
-    uploadArea.style.borderColor = '';
-  });
-  uploadArea.addEventListener('drop', (e) => {
-    e.preventDefault();
-    uploadArea.style.borderColor = '';
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) setUploadedFile(e.dataTransfer.files[0]);
-  });
-
   // Advanced panel toggle
   el.querySelector('#advanced-toggle').addEventListener('click', () => {
     const body = el.querySelector('#advanced-body');
@@ -316,7 +258,7 @@ export function createInput(onSubmit) {
   const modeDescEl = el.querySelector('#mode-desc');
   const modeDescs = {
     demo: 'Uses the pre-computed Taylor Swift snapshot. No API calls, no wait.',
-    real: 'Runs the full MiroFish pipeline against your scenario. Uses your LLM key; typically 10–30 minutes depending on simulation rounds.',
+    real: 'Runs the full MiroFish pipeline against your scenario. Uses your LLM key; typically 10–30 minutes.',
   };
   el.querySelectorAll('.input-mode-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -353,27 +295,13 @@ export function createInput(onSubmit) {
 
     try {
       const rounds = parseInt(el.querySelector('#slider-rounds').value, 10);
-      // Real backend runs much faster at 30 rounds; cap to keep demo-able
       const maxRounds = Math.min(rounds, 40);
 
-      let runId;
-      if (uploadedFile) {
-        // Multipart upload — lets the user drop in a real document so
-        // Stage 1 ontology has more entities to extract from than just
-        // the prompt text.
-        runId = await startPipelineMultipart({
-          requirement: scenario,
-          projectName: scenario.slice(0, 60),
-          maxRounds,
-          file: uploadedFile,
-        });
-      } else {
-        runId = await startPipeline({
-          requirement: scenario,
-          projectName: scenario.slice(0, 60),
-          maxRounds,
-        });
-      }
+      const runId = await startPipeline({
+        requirement: scenario,
+        projectName: scenario.slice(0, 60),
+        maxRounds,
+      });
 
       const final = await pollPipeline(runId, (status) => {
         progressPct.textContent = `${status.progress || 0}%`;
@@ -382,9 +310,6 @@ export function createInput(onSubmit) {
         if (status.stage) markStage(status.stage);
       });
 
-      // Pipeline complete — start the walkthrough at the agents screen
-      // so the user sees their entities, simulation, analytics and report
-      // in sequence, not just the final report.
       const projectId = final.project_id;
       if (!projectId) throw new Error('pipeline completed without project_id');
       window.location.hash = `#agents?project=${encodeURIComponent(projectId)}`;
@@ -399,7 +324,7 @@ export function createInput(onSubmit) {
     }
   }
 
-  runBtn.addEventListener('click', () => {
+  el.querySelector('#btn-run-simulation').addEventListener('click', () => {
     const scenario = el.querySelector('#scenario-input').value.trim();
     if (!scenario) return;
     if (currentMode === 'real') {
@@ -409,54 +334,5 @@ export function createInput(onSubmit) {
     }
   });
 
-  // Load "Your Projects" list on mount — silently skip if backend is down
-  // (demo mode doesn't need a backend so this must not block).
-  (async () => {
-    try {
-      const projects = await listProjects();
-      if (!projects || !projects.length) return;
-      const container = el.querySelector('#recent-projects');
-      const list = el.querySelector('#recent-projects-list');
-      if (!container || !list) return;
-      container.style.display = 'block';
-      list.innerHTML = '';
-      for (const p of projects.slice(0, 8)) {
-        const card = document.createElement('div');
-        card.className = 'input-screen__scenario-card';
-        card.style.cursor = 'pointer';
-        const date = p.created_at
-          ? new Date(p.created_at * 1000).toLocaleDateString()
-          : '';
-        const tagColor = p.has_report ? 'var(--green)' : 'var(--text-muted)';
-        const tagText = p.has_report ? 'Ready' : 'No report';
-        card.innerHTML = `
-          <div class="tag" style="background:transparent;color:${tagColor};border:1px solid ${tagColor};">${tagText}</div>
-          <div><strong>${escapeHtml(p.title || p.project_id)}</strong></div>
-          <div style="margin-top:4px;font-size:11px;color:var(--text-muted);">
-            ${date} · ${p.size_kb} KB · <span class="mono">${p.project_id.slice(0, 12)}</span>
-          </div>
-        `;
-        card.addEventListener('click', () => {
-          // Navigate directly to the report via the same event input.js uses
-          // for fresh real-mode completions.
-          window.location.hash = `#agents?project=${encodeURIComponent(p.project_id)}`;
-          window.dispatchEvent(new CustomEvent('loka:navigate-to-report', {
-            detail: { projectId: p.project_id },
-          }));
-        });
-        list.appendChild(card);
-      }
-    } catch (err) {
-      // Backend not reachable (e.g., demo-only deploy) — silently skip
-      console.debug('listProjects skipped:', err.message);
-    }
-  })();
-
   return el;
-}
-
-function escapeHtml(s) {
-  return String(s || '').replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  }[c]));
 }

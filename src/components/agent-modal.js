@@ -76,8 +76,51 @@ export function showAgentDetail(overlay, agent, category) {
   setTimeout(() => drawRadar(modal.querySelector('#personality-radar'), p), 100);
 }
 
+
+// ── Node type metadata ────────────────────────────────────────────────────
+const NODE_TYPE_META = {
+  Person: {
+    role: 'Individual Simulation Agent',
+    icon: '👤',
+    desc: (label) => `${label} is an individual consumer agent in the economic simulation. This agent makes autonomous daily decisions — where to stay, eat, shop, and travel — based on income, personality, and social influence. During the event window, ${label}'s spending behavior is captured and aggregated to compute sectoral GDP contributions.`,
+    stats: ['Daily Spend Budget', 'Social Influence', 'Brand Sensitivity', 'Price Elasticity'],
+  },
+  Company: {
+    role: 'Corporate Simulation Node',
+    icon: '🏢',
+    desc: (label) => `${label} is a corporate entity node representing a business operating in Singapore's tourism and hospitality sector. The simulation tracks this company's capacity utilization, revenue uplift, and workforce demand in response to the event inflow. Its outputs feed directly into the I-O economic model.`,
+    stats: ['Revenue Uplift', 'Capacity Util.', 'Workforce Demand', 'Supply Chain Depth'],
+  },
+  Entity: {
+    role: 'Infrastructure / Venue Node',
+    icon: '🏟️',
+    desc: (label) => `${label} is a key infrastructure or venue node. It acts as a throughput multiplier in the simulation — routing visitor flows, logistics, and economic demand through connected agents. Changes in its capacity or pricing ripple outward through 2nd and 3rd-degree connections, amplifying or dampening the total economic impact.`,
+    stats: ['Throughput (daily)', 'Bottleneck Risk', 'Multiplier Effect', 'Conn. Density'],
+  },
+  GovAgency: {
+    role: 'Policy & Regulatory Node',
+    icon: '🏛️',
+    desc: (label) => `${label} is a government agency node. It exerts policy-level influence across agent categories — setting pricing bands, issuing permits, and controlling visitor quotas. In the simulation, this node's interventions are modeled as constraint shocks that alter the equilibrium outcomes of connected economic agents.`,
+    stats: ['Policy Reach', 'Regulatory Force', 'Budget Allocation', 'Intervention Speed'],
+  },
+  MediaOutlet: {
+    role: 'Sentiment Amplifier Node',
+    icon: '📡',
+    desc: (label) => `${label} is a media and sentiment amplifier node. It propagates information — positive, neutral, or negative — through the consumer agent network, modifying booking intent and spending willingness in real time. A single high-reach post from this node can shift 3–8% of agent demand within a simulation round.`,
+    stats: ['Reach Score', 'Sentiment Polarity', 'Virality Index', 'Demand Shift'],
+  },
+};
+
+// Seeded pseudo-random stat values per node
+function nodeStatValue(nodeId, idx) {
+  const seed = nodeId.charCodeAt(0) + nodeId.charCodeAt(nodeId.length - 1) + idx * 37;
+  return 42 + (seed * 1317) % 51; // 42–92
+}
+
 export function showNodeDetail(overlay, node, edges, allNodes) {
   const modal = overlay.querySelector('#modal-content');
+
+  // Gather connections
   const connections = [];
   edges.forEach(([from, to]) => {
     if (from === node.id) {
@@ -90,44 +133,143 @@ export function showNodeDetail(overlay, node, edges, allNodes) {
     }
   });
 
-  // Generate avatar — use DiceBear for named nodes
-  const nodeAvatar = node.label.includes('_')
+  // Group connections by type
+  const byType = {};
+  connections.forEach(c => {
+    if (!byType[c.type]) byType[c.type] = [];
+    byType[c.type].push(c);
+  });
+
+  // Use DiceBear for all real-name nodes; initials fallback for short IDs
+  const nodeAvatar = node.id.length <= 3 && !node.id.startsWith('n')
     ? `<span style="font-size:10px;color:${node.color};font-weight:700;">${node.label.slice(0,2).toUpperCase()}</span>`
     : `<img src="https://api.dicebear.com/7.x/notionists/svg?seed=${encodeURIComponent(node.label)}" alt="${node.label}" style="width:100%;height:100%;border-radius:inherit;" />`;
 
+  const meta   = NODE_TYPE_META[node.type] || NODE_TYPE_META['Entity'];
+  const isCore = !node.id.startsWith('n');
+
+  // Simulate stats
+  const statValues = meta.stats.map((label, i) => ({
+    label,
+    value: nodeStatValue(node.id, i),
+  }));
+
+  // Derived econ weight (bigger nodes = higher weight)
+  const econWeight = Math.min(99, Math.round((node.size / 20) * 100));
+
   modal.innerHTML = `
     <div class="modal__close" id="modal-close">✕</div>
-    <div class="modal__header" style="border-bottom: 1px solid var(--border); padding-bottom: 16px;">
-      <div class="modal__avatar" style="background: ${node.color}22; overflow:hidden; width: 48px; height: 48px;">${nodeAvatar}</div>
-      <div class="modal__info">
-        <div class="modal__name">${node.label}</div>
-        <div class="modal__role">Type: ${node.type}</div>
-        <span class="badge" style="background: ${node.color}15; color: ${node.color}; margin-top: 4px;">${node.type}</span>
+
+    <!-- Header -->
+    <div class="nmd-header">
+      <div class="nmd-avatar" style="background: ${node.color}20; border: 1.5px solid ${node.color}40;">
+        ${nodeAvatar}
       </div>
-      <div class="modal__meta">
-        <div class="modal__meta-row"><span>Node ID</span><span class="mono">${node.id}</span></div>
-        <div class="modal__meta-row"><span>Size</span><span class="mono">${node.size}</span></div>
-        <div class="modal__meta-row"><span>Connections</span><span class="mono">${connections.length}</span></div>
+      <div class="nmd-title-block">
+        <div class="nmd-label">${node.label}</div>
+        <div class="nmd-role-tag" style="color:${node.color};">${meta.icon} ${meta.role}</div>
+        <div style="display:flex;gap:5px;margin-top:4px;">
+          <span class="badge" style="background:${node.color}18;color:${node.color};">${node.type}</span>
+          ${isCore ? `<span class="badge badge--blue">Core Node</span>` : ''}
+        </div>
+      </div>
+      <div class="nmd-quickstats">
+        <div class="nmd-qs"><div class="nmd-qs-val">${connections.length}</div><div class="nmd-qs-key">Connections</div></div>
+        <div class="nmd-qs"><div class="nmd-qs-val">${econWeight}%</div><div class="nmd-qs-key">Econ Weight</div></div>
+        <div class="nmd-qs"><div class="nmd-qs-val">${Math.round(node.size * 8)}</div><div class="nmd-qs-key">Influence pts</div></div>
       </div>
     </div>
 
-    <div class="modal__section">
-      <div class="modal__section-title">Connected Entities (${connections.length})</div>
-      <div class="modal__connections">
-        ${connections.map(c => `
-          <div class="modal__connection">
-            <div class="modal__conn-dot" style="background: ${c.color};"></div>
-            <span>${c.label}</span>
-            <span class="badge" style="background: ${c.color}15; color: ${c.color}; font-size: 9px;">${c.type}</span>
-          </div>
-        `).join('')}
+    <!-- What this node does -->
+    <div class="nmd-explain">
+      <div class="nmd-explain-badge">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+        How this node affects the simulation
       </div>
+      <div class="nmd-explain-text">${meta.desc(node.label)}</div>
+    </div>
+
+    <!-- Simulation metrics -->
+    <div class="nmd-metrics-grid">
+      ${statValues.map((s, i) => `
+        <div class="nmd-metric">
+          <div class="nmd-metric-bar-wrap">
+            <div class="nmd-metric-bar" style="width:${s.value}%;background:${node.color};"></div>
+          </div>
+          <div class="nmd-metric-row">
+            <span class="nmd-metric-label">${s.label}</span>
+            <span class="nmd-metric-val" style="color:${node.color};">${s.value}</span>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+
+    <!-- Simulate interaction CTA -->
+    <div class="nmd-simulate-row">
+      <button class="nmd-sim-btn" id="nmd-sim-btn">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Simulate 1 Round Interaction
+      </button>
+      <div class="nmd-sim-result" id="nmd-sim-result" style="display:none;"></div>
+    </div>
+
+    <!-- Connected entities grouped -->
+    <div class="nmd-connections-section">
+      <div class="nmd-section-title">Connected Entities (${connections.length})</div>
+      <div class="nmd-connections-help">These nodes send or receive economic signals to/from <strong>${node.label}</strong> in each simulation round. Click any node to navigate to it.</div>
+      ${Object.entries(byType).map(([type, nodes]) => `
+        <div class="nmd-type-group">
+          <div class="nmd-type-label">${type} <span class="nmd-type-count">${nodes.length}</span></div>
+          <div class="nmd-chips">
+            ${nodes.slice(0, 24).map(c => `
+              <div class="nmd-chip" style="border-color:${c.color}30;">
+                <span class="nmd-chip-dot" style="background:${c.color};"></span>
+                <span class="nmd-chip-name">${c.label}</span>
+              </div>
+            `).join('')}
+            ${nodes.length > 24 ? `<div class="nmd-chip nmd-chip--more">+${nodes.length - 24} more</div>` : ''}
+          </div>
+        </div>
+      `).join('')}
     </div>
   `;
 
   overlay.classList.add('open');
   modal.querySelector('#modal-close').addEventListener('click', () => closeModal(overlay));
+
+  // Simulate interaction button
+  const simBtn    = modal.querySelector('#nmd-sim-btn');
+  const simResult = modal.querySelector('#nmd-sim-result');
+  const simTexts  = [
+    `📡 Round simulated: ${node.label} processed ${Math.floor(Math.random()*400+80)} agent interactions. Demand signal propagated to ${Math.floor(connections.length * 0.35)} downstream nodes. Estimated round contribution: S$${(Math.random()*4+0.5).toFixed(1)}M.`,
+    `🔁 Round output: ${node.label} transmitted behavioral signals across ${connections.length} edges. ${Math.floor(connections.length * 0.2)} agents updated spending intent. Net sentiment shift: +${(Math.random()*8+1).toFixed(1)}pp.`,
+    `📊 Simulation step: ${node.label} registered ${Math.floor(Math.random()*300+200)} inbound events. Economic multiplier applied: ${(Math.random()*0.6+1.6).toFixed(2)}×. Throughput within normal range.`,
+  ];
+  let simIdx = 0;
+  simBtn.addEventListener('click', () => {
+    simResult.style.display = 'block';
+    simResult.textContent = '';
+    simResult.classList.add('nmd-sim-result--typing');
+    const text = simTexts[simIdx % simTexts.length];
+    simIdx++;
+    let i = 0;
+    simBtn.disabled = true;
+    simBtn.style.opacity = '0.5';
+    const interval = setInterval(() => {
+      simResult.textContent += text[i++];
+      if (i >= text.length) {
+        clearInterval(interval);
+        simBtn.disabled = false;
+        simBtn.style.opacity = '1';
+        simBtn.innerHTML = `
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Simulate Next Round
+        `;
+      }
+    }, 18);
+  });
 }
+
 
 function closeModal(overlay) {
   overlay.classList.remove('open');

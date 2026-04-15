@@ -269,147 +269,286 @@ export function createLanding(onStart) {
   return el;
 }
 
-// Animated geometric background
+// ============================================================
+// MiroFish-style Live Knowledge Graph Background
+// ============================================================
 function initGeometricBackground(canvas) {
   if (!canvas) return;
   const parent = canvas.parentElement;
-  const w = parent.offsetWidth;
-  const h = parent.offsetHeight;
-  const dpr = devicePixelRatio;
-  canvas.width = w * dpr;
-  canvas.height = h * dpr;
-  canvas.style.width = w + 'px';
-  canvas.style.height = h + 'px';
+  let W = parent.offsetWidth;
+  let H = parent.offsetHeight;
+  const dpr = Math.min(devicePixelRatio, 2);
+
+  function resize() {
+    W = parent.offsetWidth;
+    H = parent.offsetHeight;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.scale(dpr, dpr);
+  }
+
   const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
+  resize();
+  window.addEventListener('resize', () => { ctx.setTransform(1,0,0,1,0,0); resize(); rebuildGraph(); });
 
-  // Generate geometric elements — more visible
-  const shapes = [];
-  for (let i = 0; i < 40; i++) {
-    shapes.push({
-      x: Math.random() * w,
-      y: Math.random() * h,
-      size: 30 + Math.random() * 100,
-      type: ['circle', 'ring', 'cross', 'dots', 'line', 'hexagon'][Math.floor(Math.random() * 6)],
-      speed: 0.15 + Math.random() * 0.4,
-      phase: Math.random() * Math.PI * 2,
-      opacity: 0.06 + Math.random() * 0.08,
-      rotation: Math.random() * Math.PI,
-      rotSpeed: (Math.random() - 0.5) * 0.005,
-      useBlue: Math.random() > 0.7,
-    });
-  }
+  // ── Node types & colors (MiroFish palette)
+  const NODE_TYPES = [
+    { type: 'University',     color: '#4FC3F7', glow: '#0288D1' },
+    { type: 'Organization',   color: '#81C784', glow: '#388E3C' },
+    { type: 'Person',         color: '#FFB74D', glow: '#F57C00' },
+    { type: 'GovernmentAgency', color: '#CE93D8', glow: '#7B1FA2' },
+    { type: 'MediaOutlet',    color: '#F48FB1', glow: '#C2185B' },
+    { type: 'Student',        color: '#80DEEA', glow: '#00838F' },
+    { type: 'Professor',      color: '#FFCC02', glow: '#F9A825' },
+    { type: 'Alumni',         color: '#A5D6A7', glow: '#2E7D32' },
+  ];
 
-  // Grid dots
-  const gridDots = [];
-  const spacing = 40;
-  for (let x = 0; x < w; x += spacing) {
-    for (let y = 0; y < h; y += spacing) {
-      gridDots.push({ x: x + (Math.random() - 0.5) * 5, y: y + (Math.random() - 0.5) * 5 });
+  let nodes = [], edges = [], pulses = [];
+  const mouse = { x: -9999, y: -9999 };
+
+  parent.addEventListener('mousemove', e => {
+    const r = parent.getBoundingClientRect();
+    mouse.x = e.clientX - r.left;
+    mouse.y = e.clientY - r.top;
+  });
+  parent.addEventListener('mouseleave', () => { mouse.x = -9999; mouse.y = -9999; });
+
+  function rebuildGraph() {
+    nodes = [];
+    edges = [];
+    pulses = [];
+
+    const NODE_COUNT = Math.floor((W * H) / 22000);
+    const count = Math.max(28, Math.min(NODE_COUNT, 55));
+
+    // Hub nodes (large, center-ish)
+    const hubCount = Math.max(4, Math.floor(count * 0.18));
+    for (let i = 0; i < count; i++) {
+      const isHub = i < hubCount;
+      const typeInfo = NODE_TYPES[Math.floor(Math.random() * NODE_TYPES.length)];
+      const margin = isHub ? 120 : 60;
+      nodes.push({
+        id: i,
+        x: margin + Math.random() * (W - margin * 2),
+        y: margin + Math.random() * (H - margin * 2),
+        vx: (Math.random() - 0.5) * 0.18,
+        vy: (Math.random() - 0.5) * 0.18,
+        r: isHub ? 10 + Math.random() * 8 : 3.5 + Math.random() * 4,
+        color: typeInfo.color,
+        glow: typeInfo.glow,
+        type: typeInfo.type,
+        isHub,
+        pulsePhase: Math.random() * Math.PI * 2,
+        labelOpacity: 0,
+      });
     }
-  }
 
-  function draw() {
-    ctx.clearRect(0, 0, w, h);
-    const time = performance.now() / 1000;
-
-    // Grid dots — more visible
-    gridDots.forEach(dot => {
-      const pulse = Math.sin(time * 0.5 + dot.x * 0.01 + dot.y * 0.01) * 0.5 + 0.5;
-      ctx.beginPath();
-      ctx.arc(dot.x, dot.y, 0.8 + pulse * 0.5, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(55,53,47,${0.06 + pulse * 0.04})`;
-      ctx.fill();
-    });
-
-    // Connecting lines between nearby shapes
-    for (let i = 0; i < shapes.length; i++) {
-      for (let j = i + 1; j < shapes.length; j++) {
-        const dx = shapes[i].x - shapes[j].x;
-        const dy = shapes[i].y - shapes[j].y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 200) {
-          ctx.beginPath();
-          ctx.moveTo(shapes[i].x, shapes[i].y + Math.sin(time * shapes[i].speed + shapes[i].phase) * 8);
-          ctx.lineTo(shapes[j].x, shapes[j].y + Math.sin(time * shapes[j].speed + shapes[j].phase) * 8);
-          ctx.strokeStyle = `rgba(35,131,226,${0.03 * (1 - dist / 200)})`;
-          ctx.lineWidth = 0.5;
-          ctx.stroke();
+    // Spatial force-directed initial push + edges
+    const MAX_EDGE_DIST = Math.min(W, H) * 0.32;
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const dx = nodes[i].x - nodes[j].x;
+        const dy = nodes[i].y - nodes[j].y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < MAX_EDGE_DIST) {
+          // hub nodes connect more readily
+          const threshold = (nodes[i].isHub || nodes[j].isHub) ? 0.72 : 0.42;
+          if (Math.random() < threshold * (1 - d / MAX_EDGE_DIST)) {
+            edges.push({ a: i, b: j, flow: 0, flowSpeed: 0.4 + Math.random() * 0.8 });
+          }
         }
       }
     }
 
-    // Animated shapes
-    shapes.forEach(s => {
-      const floatY = Math.sin(time * s.speed + s.phase) * 10;
-      const cx = s.x;
-      const cy = s.y + floatY;
-      s.rotation += s.rotSpeed;
-
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.rotate(s.rotation);
-      ctx.globalAlpha = s.opacity;
-      ctx.strokeStyle = s.useBlue ? '#2383E2' : '#37352F';
-      ctx.lineWidth = s.useBlue ? 1.2 : 0.8;
-
-      switch (s.type) {
-        case 'circle':
-          ctx.beginPath();
-          ctx.arc(0, 0, s.size / 2, 0, Math.PI * 2);
-          ctx.stroke();
-          break;
-        case 'ring':
-          ctx.beginPath();
-          ctx.arc(0, 0, s.size / 2, 0, Math.PI * 1.5);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.arc(0, 0, s.size / 3, 0, Math.PI * 2);
-          ctx.stroke();
-          break;
-        case 'cross':
-          ctx.beginPath();
-          ctx.moveTo(-s.size / 3, 0); ctx.lineTo(s.size / 3, 0);
-          ctx.moveTo(0, -s.size / 3); ctx.lineTo(0, s.size / 3);
-          ctx.stroke();
-          break;
-        case 'dots':
-          for (let i = 0; i < 4; i++) {
-            const a = (Math.PI / 2) * i;
-            ctx.beginPath();
-            ctx.arc(Math.cos(a) * s.size / 3, Math.sin(a) * s.size / 3, 1.5, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(55,53,47,${s.opacity})`;
-            ctx.fill();
-          }
-          break;
-        case 'line':
-          ctx.beginPath();
-          ctx.moveTo(-s.size / 2, -s.size / 4);
-          ctx.lineTo(s.size / 2, s.size / 4);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(-s.size / 2, s.size / 4);
-          ctx.lineTo(s.size / 3, -s.size / 4);
-          ctx.stroke();
-          break;
-        case 'hexagon':
-          ctx.beginPath();
-          for (let i = 0; i < 6; i++) {
-            const a = (Math.PI / 3) * i - Math.PI / 6;
-            const hx = Math.cos(a) * s.size / 2.5;
-            const hy = Math.sin(a) * s.size / 2.5;
-            if (i === 0) ctx.moveTo(hx, hy); else ctx.lineTo(hx, hy);
-          }
-          ctx.closePath();
-          ctx.stroke();
-          break;
-      }
-      ctx.restore();
-    });
-
-    requestAnimationFrame(draw);
+    // Seed initial signal pulses
+    for (let k = 0; k < 12; k++) spawnPulse();
   }
+
+  function spawnPulse() {
+    if (edges.length === 0) return;
+    const edge = edges[Math.floor(Math.random() * edges.length)];
+    const reversed = Math.random() > 0.5;
+    pulses.push({
+      edge,
+      t: Math.random(),
+      speed: 0.003 + Math.random() * 0.006,
+      reversed,
+      color: nodes[reversed ? edge.b : edge.a].color,
+      opacity: 0.9,
+      size: 2.5 + Math.random() * 2,
+    });
+  }
+
+  rebuildGraph();
+
+  // ── Animation loop
+  let raf;
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    const time = performance.now() * 0.001;
+
+    // ── 1. Draw edges
+    for (const e of edges) {
+      const na = nodes[e.a], nb = nodes[e.b];
+      const dx = nb.x - na.x, dy = nb.y - na.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      // Proximity to mouse brightens the edge
+      const midX = (na.x + nb.x) / 2, midY = (na.y + nb.y) / 2;
+      const mdx = midX - mouse.x, mdy = midY - mouse.y;
+      const mDist = Math.sqrt(mdx * mdx + mdy * mdy);
+      const mouseBoost = Math.max(0, 1 - mDist / 180) * 0.4;
+
+      const baseAlpha = (na.isHub || nb.isHub) ? 0.22 : 0.10;
+      const alpha = Math.min(0.55, baseAlpha + mouseBoost);
+
+      ctx.beginPath();
+      ctx.moveTo(na.x, na.y);
+      ctx.lineTo(nb.x, nb.y);
+      ctx.strokeStyle = `rgba(100,160,255,${alpha})`;
+      ctx.lineWidth = (na.isHub || nb.isHub) ? 1.2 : 0.6;
+      ctx.stroke();
+    }
+
+    // ── 2. Draw & update signal pulses
+    for (let i = pulses.length - 1; i >= 0; i--) {
+      const p = pulses[i];
+      p.t += p.speed;
+      if (p.t > 1) {
+        pulses.splice(i, 1);
+        if (Math.random() < 0.85) spawnPulse(); // keep pool alive
+        continue;
+      }
+      const t = p.reversed ? 1 - p.t : p.t;
+      const na = nodes[p.edge.a], nb = nodes[p.edge.b];
+      const px = na.x + (nb.x - na.x) * t;
+      const py = na.y + (nb.y - na.y) * t;
+
+      // Trailing glow — convert hex to rgba for gradient
+      const hexToRgba = (hex, a) => {
+        const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+        return `rgba(${r},${g},${b},${a})`;
+      };
+      const grad = ctx.createRadialGradient(px, py, 0, px, py, p.size * 3.5);
+      grad.addColorStop(0, hexToRgba(p.color, p.opacity));
+      grad.addColorStop(1, 'transparent');
+      ctx.beginPath();
+      ctx.arc(px, py, p.size * 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      // Core dot
+      ctx.beginPath();
+      ctx.arc(px, py, p.size, 0, Math.PI * 2);
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = p.opacity;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // ── 3. Update node physics + draw
+    for (const n of nodes) {
+      // Mouse repulsion
+      const mdx = n.x - mouse.x, mdy = n.y - mouse.y;
+      const mDist = Math.sqrt(mdx * mdx + mdy * mdy);
+      const repelRadius = 120;
+      if (mDist < repelRadius && mDist > 0) {
+        const force = (1 - mDist / repelRadius) * 1.2;
+        n.vx += (mdx / mDist) * force;
+        n.vy += (mdy / mDist) * force;
+      }
+
+      // Gentle drift + boundary bounce
+      n.x += n.vx;
+      n.y += n.vy;
+      n.vx *= 0.985;
+      n.vy *= 0.985;
+      const pad = n.r + 24;
+      if (n.x < pad)      { n.x = pad;      n.vx = Math.abs(n.vx) * 0.7; }
+      if (n.x > W - pad)  { n.x = W - pad;  n.vx = -Math.abs(n.vx) * 0.7; }
+      if (n.y < pad)      { n.y = pad;      n.vy = Math.abs(n.vy) * 0.7; }
+      if (n.y > H - pad)  { n.y = H - pad;  n.vy = -Math.abs(n.vy) * 0.7; }
+
+      // Pulse ring (hub nodes breathe)
+      const pulse = (Math.sin(time * 1.4 + n.pulsePhase) * 0.5 + 0.5);
+
+      if (n.isHub) {
+        // Outer glow ring
+        const ringR = n.r + 6 + pulse * 8;
+        const rinGrad = ctx.createRadialGradient(n.x, n.y, n.r, n.x, n.y, ringR + 8);
+        rinGrad.addColorStop(0, n.color + '55');
+        rinGrad.addColorStop(1, 'transparent');
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, ringR + 8, 0, Math.PI * 2);
+        ctx.fillStyle = rinGrad;
+        ctx.fill();
+      }
+
+      // Node glow
+      const glowR = n.r * (n.isHub ? 3.5 : 2.8);
+      const gGrad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, glowR);
+      gGrad.addColorStop(0, n.color + (n.isHub ? 'CC' : '88'));
+      gGrad.addColorStop(0.4, n.glow + '44');
+      gGrad.addColorStop(1, 'transparent');
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, glowR, 0, Math.PI * 2);
+      ctx.fillStyle = gGrad;
+      ctx.fill();
+
+      // Core node
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+      ctx.fillStyle = n.color;
+      ctx.fill();
+
+      // White core highlight
+      ctx.beginPath();
+      ctx.arc(n.x - n.r * 0.28, n.y - n.r * 0.28, n.r * 0.35, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.fill();
+
+      // Label (hub nodes + mouse-nearby nodes)
+      const labelDist = Math.sqrt(mdx * mdx + mdy * mdy);
+      const wantLabel = n.isHub || labelDist < 80;
+      n.labelOpacity += wantLabel ? 0.06 : -0.04;
+      n.labelOpacity = Math.max(0, Math.min(1, n.labelOpacity));
+
+      if (n.labelOpacity > 0.01) {
+        ctx.save();
+        ctx.globalAlpha = n.labelOpacity * 0.92;
+        ctx.font = `${n.isHub ? 600 : 500} ${n.isHub ? 11 : 10}px Inter, sans-serif`;
+        ctx.fillStyle = '#E8F4FF';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        // Subtle pill background
+        const lbl = n.type;
+        const tw = ctx.measureText(lbl).width;
+        const lx = n.x - tw / 2 - 4, ly = n.y + n.r + 5;
+        ctx.fillStyle = 'rgba(8, 22, 55, 0.65)';
+        ctx.beginPath();
+        ctx.roundRect(lx, ly, tw + 8, 15, 4);
+        ctx.fill();
+        ctx.fillStyle = n.color;
+        ctx.fillText(lbl, n.x, ly + 2);
+        ctx.restore();
+      }
+    }
+
+    // ── 4. Occasionally spawn new pulses to keep it alive
+    if (Math.random() < 0.04 && pulses.length < 35) spawnPulse();
+
+    raf = requestAnimationFrame(draw);
+  }
+
   draw();
+
+  // Cleanup on screen hide
+  const observer = new MutationObserver(() => {
+    if (!parent.closest('.active')) { cancelAnimationFrame(raf); observer.disconnect(); }
+  });
+  observer.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class'] });
 }
 
 function generateTickerItems() {
