@@ -36,6 +36,92 @@ let customGraphData = null;
 
 /**
  * Convert a raw Zep graph_data payload into the shape the KG canvas loop
+ * expects. Edges use the new {from, to, label} format. Positions are seeded
+ * by hashing node names so layout is stable across reloads.
+ */
+function buildKgFromCustomGraph(graph, w, h) {
+  const rawNodes = graph?.nodes || [];
+  const rawEdges = graph?.edges || [];
+  if (!rawNodes.length) return null;
+
+  const pickColor = (labels) => {
+    for (const l of labels || []) {
+      if (DARK_ENTITY_COLORS[l]) return DARK_ENTITY_COLORS[l];
+      if (entityTypes && entityTypes[l]) return entityTypes[l];
+    }
+    return DARK_ENTITY_COLORS.Entity || '#34D399';
+  };
+
+  const hashSeed = (s) => {
+    let h = 0;
+    for (let i = 0; i < String(s).length; i++) {
+      h = ((h << 5) - h + String(s).charCodeAt(i)) | 0;
+    }
+    return Math.abs(h);
+  };
+  const seeded = (s, salt = 0) => {
+    const h = hashSeed(String(s) + ':' + salt);
+    return (h % 10000) / 10000;
+  };
+
+  const degree = new Map();
+  for (const e of rawEdges) {
+    const s = e.source_uuid || e.source || e.from;
+    const t = e.target_uuid || e.target || e.to;
+    if (s) degree.set(s, (degree.get(s) || 0) + 1);
+    if (t) degree.set(t, (degree.get(t) || 0) + 1);
+  }
+  const sortedNodes = [...rawNodes].sort((a, b) => {
+    const da = degree.get(a.uuid) || 0;
+    const db = degree.get(b.uuid) || 0;
+    return db - da;
+  });
+  const kept = sortedNodes.slice(0, 200);
+  const keptIds = new Set(kept.map(n => n.uuid));
+
+  const nodes = kept.map((n, i) => {
+    const deg = degree.get(n.uuid) || 0;
+    const isCore = i < 10;
+    const size = isCore ? 18 - i * 0.6 : Math.max(4, Math.min(10, 4 + deg * 0.7));
+    let x, y;
+    if (isCore) {
+      const angle = (i / 10) * Math.PI * 2;
+      x = w * 0.5 + Math.cos(angle) * w * 0.18;
+      y = h * 0.5 + Math.sin(angle) * h * 0.22;
+    } else {
+      const angle = seeded(n.uuid, 1) * Math.PI * 2;
+      const r = 0.25 + seeded(n.uuid, 2) * 0.35;
+      x = w * 0.5 + Math.cos(angle) * w * r;
+      y = h * 0.5 + Math.sin(angle) * h * r;
+    }
+    return {
+      id: n.uuid,
+      label: (n.name || 'Unknown').slice(0, 18),
+      size,
+      color: pickColor(n.labels || n.label_list),
+      type: (n.labels || [])[0] || 'Entity',
+      x: Math.max(14, Math.min(w - 14, x)),
+      y: Math.max(14, Math.min(h - 14, y)),
+      vx: 0, vy: 0,
+      summary: n.summary || '',
+      realEntity: true,
+    };
+  });
+
+  const edges = [];
+  for (const e of rawEdges) {
+    const s = e.source_uuid || e.source || e.from;
+    const t = e.target_uuid || e.target || e.to;
+    if (keptIds.has(s) && keptIds.has(t)) {
+      edges.push({ from: s, to: t, label: e.relation || e.label || 'related to' });
+    }
+  }
+
+  return { nodes, edges };
+}
+
+/**
+ * Convert a raw Zep graph_data payload into the shape the KG canvas loop
  * expects. Positions are seeded by hashing node names so layout is stable
  * across reloads. Kept in loka because peter-jim's demo version always
  * uses the procedural generator.
@@ -132,18 +218,45 @@ const DARK_ENTITY_COLORS = {
 
 function generateDenseKG(w, h) {
   const coreNodes = [
-    { id: 'ts',       label: 'Taylor Swift',  size: 20, color: '#F87171', type: 'Person',      fx: 0.50, fy: 0.34 },
-    { id: 'sg',       label: 'Singapore',     size: 18, color: '#34D399', type: 'Entity',      fx: 0.34, fy: 0.50 },
-    { id: 'venue',    label: 'Nat. Stadium',  size: 13, color: '#34D399', type: 'Entity',      fx: 0.56, fy: 0.47 },
-    { id: 'stb',      label: 'STB',           size: 12, color: '#A78BFA', type: 'GovAgency',   fx: 0.20, fy: 0.35 },
-    { id: 'mti',      label: 'Min. Trade',    size: 11, color: '#A78BFA', type: 'GovAgency',   fx: 0.14, fy: 0.24 },
-    { id: 'airlines', label: 'SIA',           size: 13, color: '#60A5FA', type: 'Company',     fx: 0.70, fy: 0.55 },
-    { id: 'mbs',      label: 'MBS',           size: 11, color: '#60A5FA', type: 'Company',     fx: 0.30, fy: 0.65 },
-    { id: 'grab',     label: 'Grab',          size: 10, color: '#60A5FA', type: 'Company',     fx: 0.14, fy: 0.60 },
-    { id: 'dbs',      label: 'DBS',           size: 10, color: '#60A5FA', type: 'Company',     fx: 0.76, fy: 0.70 },
-    { id: 'bloomberg',label: 'Bloomberg',     size: 10, color: '#FBBF24', type: 'MediaOutlet', fx: 0.84, fy: 0.30 },
-    { id: 'changi',   label: 'Changi',        size: 12, color: '#34D399', type: 'Entity',      fx: 0.64, fy: 0.37 },
-    { id: 'gdp',      label: 'GDP Impact',    size: 14, color: '#60A5FA', type: 'Entity',      fx: 0.24, fy: 0.20 },
+    { id: 'ts',       label: 'Taylor Swift',    size: 20, color: '#F87171', type: 'Person',      fx: 0.50, fy: 0.32 },
+    { id: 'sg',       label: 'Singapore',        size: 18, color: '#34D399', type: 'Entity',      fx: 0.32, fy: 0.50 },
+    { id: 'venue',    label: 'Nat. Stadium',     size: 14, color: '#34D399', type: 'Entity',      fx: 0.58, fy: 0.48 },
+    { id: 'stb',      label: 'STB',              size: 12, color: '#A78BFA', type: 'GovAgency',   fx: 0.22, fy: 0.33 },
+    { id: 'mti',      label: 'Min. Trade',       size: 11, color: '#A78BFA', type: 'GovAgency',   fx: 0.13, fy: 0.22 },
+    { id: 'airlines', label: 'Singapore Air',    size: 13, color: '#60A5FA', type: 'Company',     fx: 0.72, fy: 0.50 },
+    { id: 'mbs',      label: 'MBS Hotel',        size: 11, color: '#60A5FA', type: 'Company',     fx: 0.30, fy: 0.70 },
+    { id: 'grab',     label: 'Grab',             size: 10, color: '#60A5FA', type: 'Company',     fx: 0.14, fy: 0.62 },
+    { id: 'dbs',      label: 'DBS Bank',         size: 10, color: '#60A5FA', type: 'Company',     fx: 0.78, fy: 0.70 },
+    { id: 'bloomberg',label: 'Bloomberg',        size: 10, color: '#FBBF24', type: 'MediaOutlet', fx: 0.84, fy: 0.26 },
+    { id: 'changi',   label: 'Changi Airport',   size: 12, color: '#34D399', type: 'Entity',      fx: 0.68, fy: 0.33 },
+    { id: 'fans',     label: 'Swifties / Fans',  size: 15, color: '#F87171', type: 'Person',      fx: 0.50, fy: 0.72 },
+  ];
+
+  // ── Semantically accurate core relationship edges ────────────────────────
+  const coreEdges = [
+    { from: 'ts',       to: 'venue',     label: 'performed at'        },
+    { from: 'ts',       to: 'stb',       label: 'received S$3M grant' },
+    { from: 'ts',       to: 'bloomberg', label: 'covered by'          },
+    { from: 'ts',       to: 'changi',    label: 'arrived via'         },
+    { from: 'ts',       to: 'fans',      label: 'performed for'       },
+    { from: 'fans',     to: 'venue',     label: 'attended concerts'   },
+    { from: 'fans',     to: 'mbs',       label: 'stayed at'           },
+    { from: 'fans',     to: 'grab',      label: 'used for transport'  },
+    { from: 'fans',     to: 'sg',        label: 'visited'             },
+    { from: 'fans',     to: 'airlines',  label: 'flew in via'         },
+    { from: 'venue',    to: 'sg',        label: 'located in'          },
+    { from: 'venue',    to: 'stb',       label: 'co-funded by'        },
+    { from: 'stb',      to: 'mti',       label: 'reports to'          },
+    { from: 'stb',      to: 'sg',        label: 'promotes tourism'    },
+    { from: 'stb',      to: 'bloomberg', label: 'press briefed'       },
+    { from: 'airlines', to: 'changi',    label: 'hub at'              },
+    { from: 'airlines', to: 'fans',      label: 'chartered flights'   },
+    { from: 'mbs',      to: 'sg',        label: 'located in'          },
+    { from: 'grab',     to: 'sg',        label: 'operates in'         },
+    { from: 'dbs',      to: 'mbs',       label: 'banking partner'     },
+    { from: 'dbs',      to: 'sg',        label: 'headquartered in'    },
+    { from: 'changi',   to: 'sg',        label: 'gateway to'          },
+    { from: 'bloomberg',to: 'sg',        label: 'reported on impact'  },
   ];
 
   const types  = Object.keys(DARK_ENTITY_COLORS);
@@ -178,7 +291,7 @@ function generateDenseKG(w, h) {
     ],
     Entity: [
       'National Stadium','Singapore Sports Hub','Marina Bay Sands Arena',
-      'Suntec Convention Ctr','Esplanade Theatre','Gardens by the Bay (East)',
+      'Suntec Convention Ctr','Esplanade Theatre','Gardens by the Bay',
       'Jewel Changi','Clarke Quay','Boat Quay','Sentosa Island',
       'Fort Canning Park','East Coast Park','Orchard Road','Marina Bay',
       'Bugis Street','Little India','Chinatown','Kampong Glam','Dempsey Hill',
@@ -187,9 +300,9 @@ function generateDenseKG(w, h) {
       'Mapletree Business City','Alexandra Technopark','Science Park',
     ],
     GovAgency: [
-      'STB','Ministry of Trade','Ministry of Finance','Ministry of Culture',
+      'STB','Ministry of Finance','Ministry of Culture',
       'Urban Redevelopment Auth','National Heritage Board','NEA Singapore',
-      'Land Transport Auth','Immigration & Checkpoints Auth',
+      'Land Transport Auth','Immigration & Checkpoints',
       'Economic Development Bd','Infocomm Media Dev Auth','Enterprise SG',
       'Monetary Authority SG','Council for Estate Agencies','HDB Singapore',
       'SingHealth','NParks Singapore','CAAS Singapore',
@@ -197,12 +310,27 @@ function generateDenseKG(w, h) {
     MediaOutlet: [
       'Bloomberg APAC','Reuters Singapore','CNA','Straits Times',
       'Business Times SG','The Edge Singapore','Nikkei Asia','Tech in Asia',
-      'KrAsia','DealStreetAsia','Forbes Asia','FT (Asia)','WSJ Asia',
-      'South China Morning Post','Jakarta Post','The Star (MY)',
+      'KrAsia','DealStreetAsia','Forbes Asia','FT Asia','WSJ Asia',
+      'South China Morning Post','Jakarta Post','The Star Malaysia',
       'Vietnam Investment Review','Philippine Daily Inquirer','Bangkok Post',
     ],
   };
 
+  // Relationship label: { coreNodeId → { satelliteType → edgeLabel } }
+  const satelliteRelLabel = {
+    ts:        { Person: 'fan of',          Company: 'merchandise partner', MediaOutlet: 'covered tour',    GovAgency: 'regulatory body',  Entity: 'tour stop' },
+    sg:        { Person: 'resident of',     Company: 'operates in',         GovAgency: 'authority of',     Entity: 'district of',         MediaOutlet: 'reports on' },
+    venue:     { Person: 'attended concert',Company: 'vendor at',           Entity: 'adjacent to',         GovAgency: 'regulated by',     MediaOutlet: 'reported at' },
+    stb:       { Company: 'awarded grant',  GovAgency: 'coordinates with',  MediaOutlet: 'press briefed',  Person: 'consulted with',      Entity: 'promoted' },
+    mti:       { GovAgency: 'supervised by',Company: 'policy target',       Person: 'civil servant of',    Entity: 'governs',             MediaOutlet: 'cited' },
+    airlines:  { Person: 'flew as pax',     Company: 'codeshare with',      Entity: 'serves route to',     GovAgency: 'licensed by',      MediaOutlet: 'reported on' },
+    mbs:       { Person: 'guest at',        Company: 'tenant of',           Entity: 'adjacent to',         GovAgency: 'licensed by',      MediaOutlet: 'featured' },
+    grab:      { Person: 'customer of',     Company: 'partner of',          Entity: 'service area',        GovAgency: 'regulated by',     MediaOutlet: 'reported on' },
+    dbs:       { Company: 'client of',      Person: 'account holder at',    Entity: 'sponsors',            GovAgency: 'regulated by',     MediaOutlet: 'reported on' },
+    bloomberg: { Person: 'source for',      Company: 'covered by',          MediaOutlet: 'cited by',       GovAgency: 'quoted in',        Entity: 'reported on' },
+    changi:    { Person: 'transited at',    Company: 'tenant at',           Entity: 'connects to',         GovAgency: 'managed by',       MediaOutlet: 'reported on' },
+    fans:      { Person: 'fellow fan',      Company: 'spent at',            MediaOutlet: 'documented by',  Entity: 'visited',             GovAgency: 'facilitated by' },
+  };
 
   const nodes = coreNodes.map(n => ({ ...n, x: n.fx * w, y: n.fy * h, vx: 0, vy: 0 }));
 
@@ -236,11 +364,10 @@ function generateDenseKG(w, h) {
     });
   }
 
-  const edges = [
-    ['ts','sg'],['ts','venue'],['ts','bloomberg'],['sg','stb'],['sg','mti'],
-    ['sg','changi'],['sg','gdp'],['stb','mti'],['airlines','changi'],
-    ['mbs','sg'],['grab','sg'],['dbs','mbs'],['venue','grab'],
-  ];
+  // Start with the semantically accurate core edges
+  const edges = [...coreEdges];
+
+  // Satellite nodes — each connects to its nearest core node with a meaningful label
   for (let i = coreNodes.length; i < nodes.length; i++) {
     const n = nodes[i];
     let minDist = Infinity, nearestCore = 0;
@@ -249,18 +376,25 @@ function generateDenseKG(w, h) {
       const d = dx * dx + dy * dy;
       if (d < minDist) { minDist = d; nearestCore = j; }
     }
-    edges.push([nodes[nearestCore].id, n.id]);
+    const coreId  = nodes[nearestCore].id;
+    const relMap  = satelliteRelLabel[coreId] || {};
+    const edgeLbl = relMap[n.type] || 'related to';
+    edges.push({ from: coreId, to: n.id, label: edgeLbl });
+
+    // Optional extra peer-to-peer connections within proximity
     const conns = 1 + Math.floor(Math.random() * 2);
     for (let c = 0; c < conns; c++) {
       const j = coreNodes.length + Math.floor(Math.random() * (nodes.length - coreNodes.length));
       if (j !== i) {
         const dx = n.x - nodes[j].x, dy = n.y - nodes[j].y;
-        if (dx * dx + dy * dy < (w * 0.15) ** 2) edges.push([n.id, nodes[j].id]);
+        if (dx * dx + dy * dy < (w * 0.15) ** 2) {
+          edges.push({ from: n.id, to: nodes[j].id, label: 'connected to' });
+        }
       }
     }
   }
 
-  return { nodes, edges };
+  return { nodes, edges, coreEdges };
 }
 
 // ─── Main screen creator ─────────────────────────────────────────────────
@@ -938,11 +1072,12 @@ async function setupKG(el, modal) {
     panX=cx-(cx-panX)*(nz/zoom); panY=cy-(cy-panY)*(nz/zoom); zoom=nz;
   }, {passive:false});
 
-  // ── Signal pulses state ──
-  const CORE_EDGE_IDS = [
-    ['ts','sg'],['ts','venue'],['ts','bloomberg'],['ts','changi'],
-    ['sg','stb'],['sg','mti'],['sg','changi'],['sg','gdp'],
-    ['airlines','changi'],['mbs','sg'],['grab','sg'],['dbs','mbs'],
+  // ── Signal pulses — use the real core edges for animation ──
+  const CORE_PULSE_PAIRS = [
+    ['ts','venue'],['ts','fans'],['ts','changi'],['ts','bloomberg'],
+    ['fans','mbs'],['fans','grab'],['fans','airlines'],['fans','sg'],
+    ['airlines','changi'],['stb','mti'],['stb','sg'],
+    ['dbs','mbs'],['changi','sg'],['venue','stb'],
   ];
   const pulses = [];
   let lastPulseSpawn = 0;
@@ -975,10 +1110,10 @@ async function setupKG(el, modal) {
       n.y = n.baseY + Math.cos(time * 0.14 + i * 0.7) * 2.5;
     }
 
-    // Spawn signal pulses on core edges
+    // Spawn signal pulses along core relationship edges
     if (time - lastPulseSpawn > 0.12 && pulses.length < 40) {
       lastPulseSpawn = time;
-      const e = CORE_EDGE_IDS[Math.floor(Math.random() * CORE_EDGE_IDS.length)];
+      const e = CORE_PULSE_PAIRS[Math.floor(Math.random() * CORE_PULSE_PAIRS.length)];
       const from = nodeMap[e[0]], to = nodeMap[e[1]];
       if (from && to) {
         pulses.push({
@@ -993,16 +1128,45 @@ async function setupKG(el, modal) {
 
     // Edges
     for (let i=0;i<edges.length;i++) {
-      const [fromId,toId]=edges[i];
-      const a=nodeMap[fromId],b=nodeMap[toId];
+      const edge = edges[i];
+      const a=nodeMap[edge.from],b=nodeMap[edge.to];
       if (!a||!b) continue;
       const ai=nodes.indexOf(a),bi=nodes.indexOf(b);
       if (ai>=showN||bi>=showN) continue;
-      const core=ai<12||bi<12;
+      const bothCore = ai<12 && bi<12;
+      const core = ai<12 || bi<12;
       ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y);
-      ctx.strokeStyle=core?'rgba(96,165,250,0.20)':'rgba(148,163,184,0.055)';
-      ctx.lineWidth  =core?1.0:0.4;
+      ctx.strokeStyle=bothCore?'rgba(96,165,250,0.42)':core?'rgba(96,165,250,0.16)':'rgba(148,163,184,0.055)';
+      ctx.lineWidth  =bothCore?1.5:core?0.8:0.4;
       ctx.stroke();
+
+      // Relationship label pill — only on core-to-core edges, zoom-aware
+      if (bothCore && edge.label && zoom > 0.55) {
+        const mx = (a.x + b.x) / 2;
+        const my = (a.y + b.y) / 2;
+        ctx.font = '500 8px Inter, sans-serif';
+        ctx.textAlign  = 'center';
+        ctx.textBaseline = 'middle';
+        const tw = ctx.measureText(edge.label).width;
+        const pad = 4;
+        ctx.fillStyle = 'rgba(10,18,35,0.84)';
+        const rr = 4;
+        const px = mx - tw/2 - pad, py = my - 7, pw = tw + pad*2, ph = 14;
+        ctx.beginPath();
+        ctx.moveTo(px+rr,py); ctx.lineTo(px+pw-rr,py);
+        ctx.arcTo(px+pw,py,px+pw,py+rr,rr);
+        ctx.lineTo(px+pw,py+ph-rr);
+        ctx.arcTo(px+pw,py+ph,px+pw-rr,py+ph,rr);
+        ctx.lineTo(px+rr,py+ph);
+        ctx.arcTo(px,py+ph,px,py+ph-rr,rr);
+        ctx.lineTo(px,py+rr);
+        ctx.arcTo(px,py,px+rr,py,rr);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = 'rgba(148,163,184,0.90)';
+        ctx.fillText(edge.label, mx, my);
+        ctx.textBaseline = 'alphabetic';
+      }
     }
 
     // Signal pulses
@@ -1056,11 +1220,37 @@ async function setupKG(el, modal) {
         ctx.strokeStyle=n.color+'BB'; ctx.lineWidth=1.8; ctx.stroke();
       }
 
+      // Node labels: always for core; for satellite show on hover
       if (isCore) {
         ctx.font='600 10px Inter,sans-serif';
-        ctx.fillStyle='rgba(226,232,240,0.88)';
+        ctx.fillStyle='rgba(226,232,240,0.90)';
         ctx.textAlign='center';
+        ctx.textBaseline='alphabetic';
         ctx.fillText(n.label,n.x,n.y+r+13);
+      } else if (isHov) {
+        // Satellite hover tooltip
+        ctx.font='500 9px Inter,sans-serif';
+        ctx.textAlign='center';
+        ctx.textBaseline='middle';
+        const tw=ctx.measureText(n.label).width;
+        const pad=4, th=14;
+        const lx=n.x, ly=n.y-r-10;
+        ctx.fillStyle='rgba(10,18,35,0.90)';
+        ctx.beginPath();
+        const rr=3, px2=lx-tw/2-pad, py2=ly-th/2;
+        ctx.moveTo(px2+rr,py2); ctx.lineTo(px2+tw+pad*2-rr,py2);
+        ctx.arcTo(px2+tw+pad*2,py2,px2+tw+pad*2,py2+rr,rr);
+        ctx.lineTo(px2+tw+pad*2,py2+th-rr);
+        ctx.arcTo(px2+tw+pad*2,py2+th,px2+tw+pad*2-rr,py2+th,rr);
+        ctx.lineTo(px2+rr,py2+th);
+        ctx.arcTo(px2,py2+th,px2,py2+th-rr,rr);
+        ctx.lineTo(px2,py2+rr);
+        ctx.arcTo(px2,py2,px2+rr,py2,rr);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle=n.color;
+        ctx.fillText(n.label,lx,ly);
+        ctx.textBaseline='alphabetic';
       }
     }
     ctx.restore();

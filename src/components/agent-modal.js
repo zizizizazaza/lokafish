@@ -120,24 +120,30 @@ function nodeStatValue(nodeId, idx) {
 export function showNodeDetail(overlay, node, edges, allNodes) {
   const modal = overlay.querySelector('#modal-content');
 
-  // Gather connections
+  // Gather connections — edges are now {from, to, label} objects
   const connections = [];
-  edges.forEach(([from, to]) => {
-    if (from === node.id) {
-      const target = allNodes.find(n => n.id === to);
-      if (target) connections.push(target);
+  edges.forEach(edge => {
+    if (edge.from === node.id) {
+      const target = allNodes.find(n => n.id === edge.to);
+      if (target) connections.push({ node: target, label: edge.label, dir: 'out' });
     }
-    if (to === node.id) {
-      const source = allNodes.find(n => n.id === from);
-      if (source) connections.push(source);
+    if (edge.to === node.id) {
+      const source = allNodes.find(n => n.id === edge.from);
+      if (source) connections.push({ node: source, label: edge.label, dir: 'in' });
     }
   });
+  // De-duplicate by node id (keep first occurrence)
+  const seen = new Set();
+  const uniqueConns = connections.filter(c => {
+    if (seen.has(c.node.id)) return false;
+    seen.add(c.node.id); return true;
+  });
 
-  // Group connections by type
+  // Group unique connections by type
   const byType = {};
-  connections.forEach(c => {
-    if (!byType[c.type]) byType[c.type] = [];
-    byType[c.type].push(c);
+  uniqueConns.forEach(c => {
+    if (!byType[c.node.type]) byType[c.node.type] = [];
+    byType[c.node.type].push(c);
   });
 
   // Use DiceBear for all real-name nodes; initials fallback for short IDs
@@ -169,12 +175,12 @@ export function showNodeDetail(overlay, node, edges, allNodes) {
         <div class="nmd-label">${node.label}</div>
         <div class="nmd-role-tag" style="color:${node.color};">${meta.icon} ${meta.role}</div>
         <div style="display:flex;gap:5px;margin-top:4px;">
-          <span class="badge" style="background:${node.color}18;color:${node.color};">${node.type}</span>
-          ${isCore ? `<span class="badge badge--blue">Core Node</span>` : ''}
+          <span class="badge" style="background:${node.color}2E;color:${node.color};border:1px solid ${node.color}55;font-weight:700;">${node.type}</span>
+          ${isCore ? `<span class="badge badge--blue" style="font-weight:700;">Core Node</span>` : ''}
         </div>
       </div>
       <div class="nmd-quickstats">
-        <div class="nmd-qs"><div class="nmd-qs-val">${connections.length}</div><div class="nmd-qs-key">Connections</div></div>
+        <div class="nmd-qs"><div class="nmd-qs-val">${uniqueConns.length}</div><div class="nmd-qs-key">Connections</div></div>
         <div class="nmd-qs"><div class="nmd-qs-val">${econWeight}%</div><div class="nmd-qs-key">Econ Weight</div></div>
         <div class="nmd-qs"><div class="nmd-qs-val">${Math.round(node.size * 8)}</div><div class="nmd-qs-key">Influence pts</div></div>
       </div>
@@ -198,7 +204,7 @@ export function showNodeDetail(overlay, node, edges, allNodes) {
           </div>
           <div class="nmd-metric-row">
             <span class="nmd-metric-label">${s.label}</span>
-            <span class="nmd-metric-val" style="color:${node.color};">${s.value}</span>
+            <span class="nmd-metric-val" style="color:${node.color};">${s.value}<span style="font-size:9px;opacity:0.55;font-weight:400;">/100</span></span>
           </div>
         </div>
       `).join('')}
@@ -213,21 +219,28 @@ export function showNodeDetail(overlay, node, edges, allNodes) {
       <div class="nmd-sim-result" id="nmd-sim-result" style="display:none;"></div>
     </div>
 
-    <!-- Connected entities grouped -->
+    <!-- Connected entities grouped by type with relationship labels -->
     <div class="nmd-connections-section">
-      <div class="nmd-section-title">Connected Entities (${connections.length})</div>
-      <div class="nmd-connections-help">These nodes send or receive economic signals to/from <strong>${node.label}</strong> in each simulation round. Click any node to navigate to it.</div>
-      ${Object.entries(byType).map(([type, nodes]) => `
+      <div class="nmd-section-title">Connected Entities (${uniqueConns.length})</div>
+      <div class="nmd-connections-help">These nodes send or receive economic signals to/from <strong>${node.label}</strong> in each simulation round. Arrows show direction; labels show relationship type.</div>
+      ${Object.entries(byType).map(([type, conns]) => `
         <div class="nmd-type-group">
-          <div class="nmd-type-label">${type} <span class="nmd-type-count">${nodes.length}</span></div>
+          <div class="nmd-type-label">${type} <span class="nmd-type-count">${conns.length}</span></div>
           <div class="nmd-chips">
-            ${nodes.slice(0, 24).map(c => `
-              <div class="nmd-chip" style="border-color:${c.color}30;">
-                <span class="nmd-chip-dot" style="background:${c.color};"></span>
-                <span class="nmd-chip-name">${c.label}</span>
+            ${conns.slice(0, 24).map(c => `
+              <div class="nmd-chip nmd-chip--clickable"
+                style="border-color:${c.node.color}30;cursor:pointer;"
+                data-cname="${c.node.label.replace(/"/g,'&quot;')}"
+                data-ctype="${c.node.type}"
+                data-crel="${c.label.replace(/"/g,'&quot;')}"
+                data-cdir="${c.dir}"
+                data-ccolor="${c.node.color}">
+                <span class="nmd-chip-dot" style="background:${c.node.color};"></span>
+                <span class="nmd-chip-name">${c.node.label}</span>
+                <span class="nmd-chip-rel" style="color:${c.node.color};">${c.dir === 'out' ? '→' : '←'} ${c.label}</span>
               </div>
             `).join('')}
-            ${nodes.length > 24 ? `<div class="nmd-chip nmd-chip--more">+${nodes.length - 24} more</div>` : ''}
+            ${conns.length > 24 ? `<div class="nmd-chip nmd-chip--more">+${conns.length - 24} more</div>` : ''}
           </div>
         </div>
       `).join('')}
@@ -237,16 +250,76 @@ export function showNodeDetail(overlay, node, edges, allNodes) {
   overlay.classList.add('open');
   modal.querySelector('#modal-close').addEventListener('click', () => closeModal(overlay));
 
+  // ── Chip click popover ─────────────────────────────────────────────────
+  let chipPop = modal.querySelector('.nmd-chip-popover');
+  if (!chipPop) {
+    chipPop = document.createElement('div');
+    chipPop.className = 'nmd-chip-popover';
+    chipPop.style.display = 'none';
+    modal.appendChild(chipPop);
+  }
+
+  function closePop() { chipPop.style.display = 'none'; }
+
+  modal.querySelectorAll('.nmd-chip--clickable').forEach(chip => {
+    chip.addEventListener('click', e => {
+      e.stopPropagation();
+      const cname  = chip.dataset.cname;
+      const ctype  = chip.dataset.ctype;
+      const crel   = chip.dataset.crel;
+      const cdir   = chip.dataset.cdir;
+      const ccolor = chip.dataset.ccolor;
+
+      const meta = NODE_TYPE_META[ctype] || NODE_TYPE_META['Entity'];
+
+      const fromLabel = cdir === 'out' ? node.label : cname;
+      const toLabel   = cdir === 'out' ? cname       : node.label;
+      const relHtml   = `<span style="opacity:.7">${fromLabel}</span> <span class="nmd-cpop-arrow">→</span> <em style="color:${ccolor};font-style:normal;font-weight:600;">${crel}</em> <span class="nmd-cpop-arrow">→</span> <span style="opacity:.7">${toLabel}</span>`;
+
+      const fullDesc = meta.desc(cname);
+      const shortDesc = fullDesc.length > 160 ? fullDesc.slice(0, 157) + '…' : fullDesc;
+
+      chipPop.innerHTML = `
+        <div class="nmd-cpop-header">
+          <span class="nmd-cpop-dot" style="background:${ccolor};"></span>
+          <span class="nmd-cpop-name">${cname}</span>
+          <span class="nmd-cpop-badge" style="background:${ccolor}2E;color:${ccolor};border:1px solid ${ccolor}55;">${meta.icon} ${ctype}</span>
+          <button class="nmd-cpop-close" title="Close">✕</button>
+        </div>
+        <div class="nmd-cpop-rel">${relHtml}</div>
+        <div class="nmd-cpop-desc">${shortDesc}</div>
+      `;
+
+      const chipRect  = chip.getBoundingClientRect();
+      const modalRect = modal.getBoundingClientRect();
+      const topInModal   = chipRect.bottom - modalRect.top + modal.scrollTop + 6;
+      let  leftInModal   = chipRect.left   - modalRect.left;
+      chipPop.style.display = 'block';
+      const popW = chipPop.offsetWidth || 280;
+      const maxLeft = modal.clientWidth - popW - 12;
+      leftInModal = Math.max(8, Math.min(leftInModal, maxLeft));
+      chipPop.style.top  = topInModal + 'px';
+      chipPop.style.left = leftInModal + 'px';
+
+      chipPop.querySelector('.nmd-cpop-close').addEventListener('click', e2 => {
+        e2.stopPropagation(); closePop();
+      });
+    });
+  });
+
+  modal.addEventListener('click', () => closePop());
+
   // Simulate interaction button
   const simBtn    = modal.querySelector('#nmd-sim-btn');
   const simResult = modal.querySelector('#nmd-sim-result');
   const simTexts  = [
-    `📡 Round simulated: ${node.label} processed ${Math.floor(Math.random()*400+80)} agent interactions. Demand signal propagated to ${Math.floor(connections.length * 0.35)} downstream nodes. Estimated round contribution: S$${(Math.random()*4+0.5).toFixed(1)}M.`,
-    `🔁 Round output: ${node.label} transmitted behavioral signals across ${connections.length} edges. ${Math.floor(connections.length * 0.2)} agents updated spending intent. Net sentiment shift: +${(Math.random()*8+1).toFixed(1)}pp.`,
+    `📡 Round simulated: ${node.label} processed ${Math.floor(Math.random()*400+80)} agent interactions. Demand signal propagated to ${Math.floor(uniqueConns.length * 0.35)} downstream nodes. Estimated round contribution: S$${(Math.random()*4+0.5).toFixed(1)}M.`,
+    `🔁 Round output: ${node.label} transmitted behavioral signals across ${uniqueConns.length} edges. ${Math.floor(uniqueConns.length * 0.2)} agents updated spending intent. Net sentiment shift: +${(Math.random()*8+1).toFixed(1)}pp.`,
     `📊 Simulation step: ${node.label} registered ${Math.floor(Math.random()*300+200)} inbound events. Economic multiplier applied: ${(Math.random()*0.6+1.6).toFixed(2)}×. Throughput within normal range.`,
   ];
   let simIdx = 0;
   simBtn.addEventListener('click', () => {
+    closePop();
     simResult.style.display = 'block';
     simResult.textContent = '';
     simResult.classList.add('nmd-sim-result--typing');

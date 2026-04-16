@@ -2367,6 +2367,101 @@ button { font-family: var(--font-sans); cursor: pointer; border: none; outline: 
   flex-shrink: 0;
 }
 .nmd-chip-name { font-size: 11px; }
+.nmd-chip-rel {
+  font-size: 9.5px;
+  font-style: italic;
+  white-space: nowrap;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nmd-chip--clickable:hover {
+  background: var(--bg-secondary);
+  border-color: var(--border-strong) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+  transition: all 0.12s ease;
+}
+
+/* ── Chip click popover ────────────────────────────────────── */
+.nmd-chip-popover {
+  position: absolute;
+  z-index: 10;
+  width: 280px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.07);
+  padding: 12px 14px;
+  animation: cpop-in 0.15s ease;
+}
+@keyframes cpop-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.nmd-cpop-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 9px;
+}
+.nmd-cpop-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.nmd-cpop-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nmd-cpop-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 20px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.nmd-cpop-close {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.1s, color 0.1s;
+  font-family: var(--font-sans);
+  padding: 0;
+}
+.nmd-cpop-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+.nmd-cpop-rel {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  padding: 7px 10px;
+  margin-bottom: 9px;
+  line-height: 1.5;
+  border-left: 2px solid var(--border-strong);
+}
+.nmd-cpop-arrow {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.nmd-cpop-desc {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  line-height: 1.65;
+}
 
 /* Modal close button — light style */
 #agent-modal .modal__close {
