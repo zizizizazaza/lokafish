@@ -125,7 +125,7 @@ def run_full_pipeline(
         # a rich stakeholder map markdown so Stage 1 has far more entities
         # to extract. The original doc is preserved for reference; Stage 1
         # reads the expanded version instead.
-        emit("expansion", 0, "Expanding stakeholder map with LLM...")
+        emit("expansion", 0, "Expanding stakeholder map with LLM pool...")
         try:
             from . import stakeholder_expander
             original_text = ""
@@ -134,7 +134,8 @@ def run_full_pipeline(
             except Exception:
                 pass
 
-            expanded_md = stakeholder_expander.expand_requirement(
+            # Use parallel multi-axis expansion for richer entity coverage
+            expanded_md = stakeholder_expander.expand_parallel(
                 requirement=requirement,
                 extra_context=original_text,
             )
@@ -264,10 +265,15 @@ def run_full_pipeline(
         sess._save("03a_create.json", create["data"])
 
         emit("simulation_prepare", 10, "Generating agent profiles...")
+        from ..config import Config as PipeConfig
+        from ..utils.llm_pool import get_pool
+        target_agents = PipeConfig.TARGET_AGENT_COUNT
+        pool = get_pool()
         prep = sess.post_json("/api/simulation/prepare", {
             "simulation_id": sim_id,
             "use_llm_for_profiles": True,
-            "parallel_profile_count": 5,
+            "parallel_profile_count": pool.suggested_parallel,
+            "target_agent_count": target_agents,
         })
         if not prep.get("success"):
             raise RuntimeError(f"prepare failed: {prep.get('error')}")

@@ -847,7 +847,87 @@ class OasisProfileGenerator:
     def set_graph_id(self, graph_id: str):
         """设置图谱ID用于Zep检索"""
         self.graph_id = graph_id
-    
+
+    # ── Entity amplification ──────────────────────────────────────────────
+    # Group/demographic entities (e.g. "Tourists", "Swifties") are expanded
+    # into N individual agent slots so the simulation reaches the target
+    # agent count (default 2000).
+
+    # Demographic sub-segments used to diversify amplified agents
+    AMPLIFY_SEGMENTS = [
+        {"country": "Singapore", "tag": "local"},
+        {"country": "Malaysia", "tag": "regional-MY"},
+        {"country": "Indonesia", "tag": "regional-ID"},
+        {"country": "Thailand", "tag": "regional-TH"},
+        {"country": "Philippines", "tag": "regional-PH"},
+        {"country": "China", "tag": "mainland-CN"},
+        {"country": "Japan", "tag": "east-asia-JP"},
+        {"country": "South Korea", "tag": "east-asia-KR"},
+        {"country": "Australia", "tag": "oceania-AU"},
+        {"country": "US", "tag": "americas-US"},
+        {"country": "UK", "tag": "europe-UK"},
+        {"country": "India", "tag": "south-asia-IN"},
+    ]
+
+    def _amplify_entities(
+        self,
+        entities: List[EntityNode],
+        target_count: int,
+    ) -> List[dict]:
+        """
+        Expand the entity list into *target_count* agent slots.
+
+        Each slot is a dict with keys:
+            entity   – the source EntityNode
+            variant  – int (0 for 1:1, 1..N for amplified copies)
+            segment  – demographic segment dict (for amplified copies)
+
+        Individual entities get variant=0 (one agent each).
+        Group entities are amplified proportionally to fill the remaining
+        slots up to target_count.
+        """
+        individual_slots = []
+        group_entities = []
+
+        for ent in entities:
+            etype = (ent.get_entity_type() or "Entity").lower()
+            if etype in self.INDIVIDUAL_ENTITY_TYPES:
+                individual_slots.append({"entity": ent, "variant": 0, "segment": None})
+            else:
+                group_entities.append(ent)
+
+        remaining = max(0, target_count - len(individual_slots))
+
+        if not group_entities:
+            # No group entities — just return individuals (may be < target)
+            logger.info(f"amplify: {len(individual_slots)} individual entities, "
+                        f"no group entities to amplify")
+            return individual_slots
+
+        # Distribute remaining slots proportionally across group entities
+        per_group = max(1, remaining // len(group_entities))
+        extra = remaining - per_group * len(group_entities)
+
+        amplified_slots = []
+        for i, ent in enumerate(group_entities):
+            count = per_group + (1 if i < extra else 0)
+            # Always keep at least 1 (the entity itself)
+            for v in range(count):
+                seg = self.AMPLIFY_SEGMENTS[v % len(self.AMPLIFY_SEGMENTS)]
+                amplified_slots.append({
+                    "entity": ent,
+                    "variant": v,
+                    "segment": seg,
+                })
+
+        all_slots = individual_slots + amplified_slots
+        logger.info(
+            f"amplify: {len(individual_slots)} individual + "
+            f"{len(amplified_slots)} amplified = {len(all_slots)} total "
+            f"(target was {target_count})"
+        )
+        return all_slots
+
     def generate_profiles_from_entities(
         self,
         entities: List[EntityNode],
@@ -856,31 +936,47 @@ class OasisProfileGenerator:
         graph_id: Optional[str] = None,
         parallel_count: int = 5,
         realtime_output_path: Optional[str] = None,
-        output_platform: str = "reddit"
+        output_platform: str = "reddit",
+        target_agent_count: Optional[int] = None,
     ) -> List[OasisAgentProfile]:
         """
-        批量从实体生成Agent Profile（支持并行生成）
-        
+        批量从实体生成Agent Profile（支持并行生成 + 实体扩增）
+
         Args:
             entities: 实体列表
             use_llm: 是否使用LLM生成详细人设
             progress_callback: 进度回调函数 (current, total, message)
             graph_id: 图谱ID，用于Zep检索获取更丰富上下文
-            parallel_count: 并行生成数量，默认5
+            parallel_count: 并行生成数量，默认5（若配置了LLM Pool则自动提升）
             realtime_output_path: 实时写入的文件路径（如果提供，每生成一个就写入一次）
             output_platform: 输出平台格式 ("reddit" 或 "twitter")
-            
+            target_agent_count: 目标agent数量，群体实体会被扩增以达到此数量
+
         Returns:
             Agent Profile列表
         """
         import concurrent.futures
         from threading import Lock
-        
+        from ..utils.llm_pool import get_pool
+
         # 设置graph_id用于Zep检索
         if graph_id:
             self.graph_id = graph_id
-        
-        total = len(entities)
+
+        # ── LLM Pool: auto-scale parallelism ──
+        pool = get_pool()
+        if parallel_count <= 5 and pool.size > 1:
+            parallel_count = pool.suggested_parallel
+            logger.info(f"LLM pool has {pool.size} endpoints, "
+                        f"auto-scaling parallel_count to {parallel_count}")
+
+        # ── Amplification: expand entities to reach target_agent_count ──
+        if target_agent_count and target_agent_count > len(entities):
+            slots = self._amplify_entities(entities, target_agent_count)
+        else:
+            slots = [{"entity": e, "variant": 0, "segment": None} for e in entities]
+
+        total = len(slots)
         profiles = [None] * total  # 预分配列表保持顺序
         completed_count = [0]  # 使用列表以便在闭包中修改
         lock = Lock()
@@ -919,53 +1015,76 @@ class OasisProfileGenerator:
         # Capture locale before spawning thread pool workers
         current_locale = get_locale()
 
-        def generate_single_profile(idx: int, entity: EntityNode) -> tuple:
-            """生成单个profile的工作函数"""
+        def generate_single_profile(idx: int, slot: dict) -> tuple:
+            """生成单个profile的工作函数（支持扩增slot）"""
             set_locale(current_locale)
+            entity = slot["entity"]
+            variant = slot["variant"]
+            segment = slot["segment"]
             entity_type = entity.get_entity_type() or "Entity"
-            
+
             try:
-                profile = self.generate_profile_from_entity(
-                    entity=entity,
-                    user_id=idx,
-                    use_llm=use_llm
-                )
-                
+                # Use a pooled LLM endpoint for this call
+                ep = pool.next()
+
+                if variant == 0 and segment is None:
+                    # Direct 1:1 entity → agent
+                    profile = self.generate_profile_from_entity(
+                        entity=entity,
+                        user_id=idx,
+                        use_llm=use_llm
+                    )
+                else:
+                    # Amplified slot: generate a variant persona
+                    profile = self._generate_amplified_profile(
+                        entity=entity,
+                        user_id=idx,
+                        variant=variant,
+                        segment=segment,
+                        endpoint=ep,
+                    )
+
                 # 实时输出生成的人设到控制台和日志
                 self._print_generated_profile(entity.name, entity_type, profile)
-                
+
                 return idx, profile, None
-                
+
             except Exception as e:
-                logger.error(f"生成实体 {entity.name} 的人设失败: {str(e)}")
+                logger.error(f"生成实体 {entity.name} (v{variant}) 的人设失败: {str(e)}")
                 # 创建一个基础profile
+                suffix = f"_{variant}" if variant > 0 else ""
+                fallback_name = entity.name + suffix
                 fallback_profile = OasisAgentProfile(
                     user_id=idx,
-                    user_name=self._generate_username(entity.name),
-                    name=entity.name,
+                    user_name=self._generate_username(fallback_name),
+                    name=fallback_name,
                     bio=f"{entity_type}: {entity.name}",
                     persona=entity.summary or f"A participant in social discussions.",
                     source_entity_uuid=entity.uuid,
                     source_entity_type=entity_type,
+                    country=segment["country"] if segment else None,
                 )
                 return idx, fallback_profile, str(e)
-        
-        logger.info(f"开始并行生成 {total} 个Agent人设（并行数: {parallel_count}）...")
+
+        logger.info(f"开始并行生成 {total} 个Agent人设（并行数: {parallel_count}, "
+                    f"LLM endpoints: {pool.size}）...")
         print(f"\n{'='*60}")
-        print(f"开始生成Agent人设 - 共 {total} 个实体，并行数: {parallel_count}")
+        print(f"开始生成Agent人设 - 共 {total} 个slots，并行数: {parallel_count}, "
+              f"LLM endpoints: {pool.size}")
         print(f"{'='*60}\n")
-        
+
         # 使用线程池并行执行
         with concurrent.futures.ThreadPoolExecutor(max_workers=parallel_count) as executor:
             # 提交所有任务
-            future_to_entity = {
-                executor.submit(generate_single_profile, idx, entity): (idx, entity)
-                for idx, entity in enumerate(entities)
+            future_to_slot = {
+                executor.submit(generate_single_profile, idx, slot): (idx, slot)
+                for idx, slot in enumerate(slots)
             }
-            
+
             # 收集结果
-            for future in concurrent.futures.as_completed(future_to_entity):
-                idx, entity = future_to_entity[future]
+            for future in concurrent.futures.as_completed(future_to_slot):
+                idx, slot = future_to_slot[future]
+                entity = slot["entity"]
                 entity_type = entity.get_entity_type() or "Entity"
                 
                 try:
@@ -1044,6 +1163,110 @@ class OasisProfileGenerator:
         # 只输出到控制台（避免重复，logger不再输出完整内容）
         print(output)
     
+    def _generate_amplified_profile(
+        self,
+        entity: 'EntityNode',
+        user_id: int,
+        variant: int,
+        segment: Optional[Dict[str, str]],
+        endpoint=None,
+    ) -> OasisAgentProfile:
+        """
+        Generate an amplified agent variant from a group entity.
+
+        For a group entity like "Tourists" or "Swifties", this creates a
+        unique individual persona belonging to the specified demographic
+        segment. Uses the LLM pool endpoint if provided.
+        """
+        entity_type = entity.get_entity_type() or "Entity"
+        country = segment["country"] if segment else random.choice(self.COUNTRIES)
+        tag = segment["tag"] if segment else "general"
+
+        # Build a name with variant suffix
+        base_name = entity.name
+        variant_name = f"{base_name}_{tag}_{variant}"
+        user_name = self._generate_username(variant_name)
+
+        # Build context from the parent entity
+        context = self._build_entity_context(entity)
+
+        prompt = (
+            f"You are creating a UNIQUE individual persona for an agent-based "
+            f"economic simulation.\n\n"
+            f"This agent belongs to the group: **{base_name}** ({entity_type}).\n"
+            f"Demographic segment: **{country}** (tag: {tag})\n"
+            f"Variant number: {variant} (make this person distinct from others "
+            f"in the same group)\n\n"
+            f"Context about the group:\n{context[:2000]}\n\n"
+            f"Generate a JSON object with these fields:\n"
+            f'- "bio": 1-2 sentence public bio\n'
+            f'- "persona": 200-400 word detailed persona (background, habits, '
+            f'spending patterns, social media behavior, opinions)\n'
+            f'- "age": integer 18-65\n'
+            f'- "gender": "male" or "female"\n'
+            f'- "mbti": one of the 16 MBTI types\n'
+            f'- "country": "{country}"\n'
+            f'- "profession": specific job title\n'
+            f'- "interested_topics": list of 3-5 topic strings\n\n'
+            f"Make this person feel REAL and UNIQUE. Give them a realistic name "
+            f"from {country}, specific hobbies, and distinctive opinions."
+        )
+
+        try:
+            if endpoint:
+                client = endpoint.create_client()
+                model = endpoint.model
+            else:
+                client = self.client
+                model = self.model_name
+
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": (
+                        "You generate realistic individual personas for economic "
+                        "simulations. Output valid JSON only."
+                    )},
+                    {"role": "user", "content": prompt},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.8,  # higher for diversity
+            )
+            content = response.choices[0].message.content
+            data = json.loads(content)
+        except Exception as e:
+            logger.warning(f"amplified profile LLM failed for {variant_name}: {e}")
+            data = self._generate_profile_rule_based(
+                entity_name=variant_name,
+                entity_type=entity_type,
+                entity_summary=entity.summary,
+                entity_attributes=entity.attributes or {},
+            )
+            data["country"] = country
+
+        # Use the LLM-generated name if available, otherwise use variant_name
+        display_name = data.get("name", variant_name)
+
+        return OasisAgentProfile(
+            user_id=user_id,
+            user_name=user_name,
+            name=display_name,
+            bio=data.get("bio", f"Member of {base_name} from {country}"),
+            persona=data.get("persona", entity.summary or f"A {entity_type} participant."),
+            karma=random.randint(500, 5000),
+            friend_count=random.randint(50, 500),
+            follower_count=random.randint(100, 1000),
+            statuses_count=random.randint(100, 2000),
+            age=data.get("age"),
+            gender=data.get("gender"),
+            mbti=data.get("mbti"),
+            country=data.get("country", country),
+            profession=data.get("profession"),
+            interested_topics=data.get("interested_topics", []),
+            source_entity_uuid=entity.uuid,
+            source_entity_type=entity_type,
+        )
+
     def save_profiles(
         self,
         profiles: List[OasisAgentProfile],

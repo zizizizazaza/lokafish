@@ -44,6 +44,14 @@ class Config:
     DEFAULT_CHUNK_SIZE = 500  # 默认切块大小
     DEFAULT_CHUNK_OVERLAP = 50  # 默认重叠大小
     
+    # Multi-LLM pool (see utils/llm_pool.py for details)
+    # Comma-separated endpoint names; per-endpoint vars: LLM_POOL_<NAME>_{KEY,URL,MODEL}
+    LLM_POOL_ENDPOINTS = os.environ.get('LLM_POOL_ENDPOINTS', '')
+
+    # Target agent count — how many OASIS agents to generate from the entity list.
+    # Entities are amplified (group entities spawn multiple agents) to reach this target.
+    TARGET_AGENT_COUNT = int(os.environ.get('TARGET_AGENT_COUNT', '2000'))
+
     # OASIS模拟配置
     OASIS_DEFAULT_MAX_ROUNDS = int(os.environ.get('OASIS_DEFAULT_MAX_ROUNDS', '10'))
     OASIS_SIMULATION_DATA_DIR = os.path.join(os.path.dirname(__file__), '../uploads/simulations')
