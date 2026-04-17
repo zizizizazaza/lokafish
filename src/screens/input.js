@@ -5,6 +5,14 @@
 //   real   → POST /api/project/run, poll, navigate to ?project=<id>
 
 import { startPipeline, pollPipeline } from '../lib/project_client.js';
+import { createParticipationMode } from '../components/participation-mode.js';
+import { createDecisionCard } from '../components/decision-card.js';
+import {
+  DECISION_POINTS,
+  PARTICIPATION_MODES,
+  getDecisionPoint,
+} from '../data/decision_points.js';
+import { getConfig } from '../lib/participation_state.js';
 
 export function createInput(onSubmit) {
   const el = document.createElement('div');
@@ -16,23 +24,33 @@ export function createInput(onSubmit) {
   el.innerHTML = `
     <div class="input-screen__container">
       <div class="input-screen__main anim-fade-up">
-        <h2 class="input-screen__heading">Describe Prediction Scenario</h2>
-        <textarea class="input-screen__textarea" id="scenario-input" placeholder="e.g., Predict the economic impact of a major event on a city's GDP, tourism, and local businesses...">${defaultScenario}</textarea>
-        
-        <div class="input-screen__toggle-row">
-          <div>
-            <div class="input-screen__toggle-label">Autonomous Data Collection</div>
-            <div class="input-screen__toggle-desc">Loka agents autonomously gather and synthesize relevant public data</div>
-          </div>
-          <div class="toggle-switch on" id="toggle-ai-data"><div class="toggle-switch__knob"></div></div>
+        <div class="input-screen__step">Step 1 of 2</div>
+        <h2 class="input-screen__heading">Configure your simulation</h2>
+        <p class="input-screen__lead">Describe the scenario. Set governance. Run.</p>
+
+        <div class="input-section-label">Scenario</div>
+        <div class="input-screen__textarea-wrap">
+          <textarea class="input-screen__textarea" id="scenario-input" placeholder="e.g., Predict the economic impact of a major event on a city's GDP, tourism, and local businesses...">${defaultScenario}</textarea>
+          <div class="input-screen__char-count" id="char-count"></div>
         </div>
 
-        <div class="input-screen__toggle-row">
-          <div>
-            <div class="input-screen__toggle-label">Upload Custom Data</div>
-            <div class="input-screen__toggle-desc">Provide proprietary datasets, internal reports, or research papers</div>
+        <div class="input-section-label">Data sources</div>
+        <div class="input-screen__toggles">
+          <div class="input-screen__toggle-row">
+            <div>
+              <div class="input-screen__toggle-label">Autonomous Data Collection</div>
+              <div class="input-screen__toggle-desc">Loka agents autonomously gather and synthesize relevant public data</div>
+            </div>
+            <div class="toggle-switch on" id="toggle-ai-data"><div class="toggle-switch__knob"></div></div>
           </div>
-          <div class="toggle-switch" id="toggle-upload"><div class="toggle-switch__knob"></div></div>
+
+          <div class="input-screen__toggle-row">
+            <div>
+              <div class="input-screen__toggle-label">Upload Custom Data</div>
+              <div class="input-screen__toggle-desc">Provide proprietary datasets, internal reports, or research papers</div>
+            </div>
+            <div class="toggle-switch" id="toggle-upload"><div class="toggle-switch__knob"></div></div>
+          </div>
         </div>
 
         <div class="input-screen__upload" id="upload-area">
@@ -41,6 +59,7 @@ export function createInput(onSubmit) {
           <div>Supports PDF, CSV, XLSX, JSON — Max 50MB per file</div>
         </div>
 
+        <div class="input-section-label">Model parameters</div>
         <!-- ADVANCED SETTINGS PANEL -->
         <div class="advanced-panel" id="advanced-panel">
           <div class="advanced-panel__header" id="advanced-toggle">
@@ -145,27 +164,56 @@ export function createInput(onSubmit) {
           </div>
         </div>
 
-        <div class="input-screen__mode-row" style="display:flex;gap:12px;align-items:center;padding:14px 0 4px;border-top:1px solid var(--border);margin-top:18px;">
-          <span style="font-size:12px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.08em;">Mode:</span>
-          <button type="button" class="btn btn--sm input-mode-btn active" data-mode="demo" id="mode-demo">Demo (instant)</button>
-          <button type="button" class="btn btn--sm input-mode-btn" data-mode="real" id="mode-real">Real analysis (10–30 min)</button>
+        <div class="input-section-label">Simulation governance</div>
+        <!-- PARTICIPATION MODE + DECISION-POINT PICKER -->
+        <div id="participation-mount"></div>
+        <div class="participation__footer" id="participation-footer">
+          <button type="button" class="btn btn--ghost btn--sm input-preview-btn" id="btn-preview-card">
+            Preview checkpoint card ↗
+          </button>
+          <span class="participation__footer-hint" id="participation-summary"></span>
         </div>
-        <div class="input-screen__mode-desc" id="mode-desc" style="font-size:12px;color:var(--text-secondary);margin-top:6px;min-height:16px;">
+
+        <!-- Decision-card preview modal -->
+        <div class="decision-preview" id="decision-preview" hidden>
+          <div class="decision-preview__backdrop" data-action="close"></div>
+          <div class="decision-preview__panel">
+            <button type="button" class="decision-preview__close" data-action="close" aria-label="Close">×</button>
+            <div class="decision-preview__picker" id="decision-preview-picker"></div>
+            <div class="decision-preview__slot" id="decision-preview-slot"></div>
+          </div>
+        </div>
+
+        <div class="input-section-label">Run mode</div>
+        <div class="input-screen__mode-row">
+          <button type="button" class="input-mode-btn active" data-mode="demo" id="mode-demo">
+            <span class="input-mode-btn__label">Demo</span>
+            <span class="input-mode-btn__sub">instant · no API key</span>
+          </button>
+          <button type="button" class="input-mode-btn" data-mode="real" id="mode-real">
+            <span class="input-mode-btn__label">Real analysis</span>
+            <span class="input-mode-btn__sub">10–30 min · uses LLM key</span>
+          </button>
+        </div>
+        <div class="input-screen__mode-desc" id="mode-desc">
           Uses the pre-computed Taylor Swift snapshot. No API calls, no wait.
         </div>
 
         <div class="input-screen__actions">
-          <button class="btn btn--primary btn--lg" id="btn-run-simulation">Run World Simulation →</button>
+          <button class="btn btn--primary input-run-btn" id="btn-run-simulation">
+            Run World Simulation
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+          </button>
         </div>
 
         <!-- Real-mode progress overlay -->
         <div class="pipeline-progress" id="pipeline-progress" style="display:none;margin-top:24px;padding:20px;border:1px solid var(--border);border-radius:10px;background:var(--bg-subtle);">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
             <div style="font-weight:600;font-size:14px;">Running pipeline</div>
-            <div class="mono" id="progress-pct" style="font-size:13px;color:var(--accent);">0%</div>
+            <div class="mono" id="progress-pct" style="font-size:13px;color:var(--blue);">0%</div>
           </div>
           <div style="height:6px;background:var(--border);border-radius:4px;overflow:hidden;margin-bottom:14px;">
-            <div id="progress-bar" style="height:100%;width:0%;background:var(--accent);transition:width 400ms ease;"></div>
+            <div id="progress-bar" style="height:100%;width:0%;background:var(--blue);transition:width 400ms ease;"></div>
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;font-size:11px;">
             <span class="progress-stage" data-stage="expansion">0. Stakeholders</span>
@@ -246,11 +294,112 @@ export function createInput(onSubmit) {
     el.querySelector('#val-confidence').textContent = e.target.value + '%';
   });
 
+  // Char counter
+  const scenarioInput = el.querySelector('#scenario-input');
+  const charCountEl   = el.querySelector('#char-count');
+  function updateCharCount() {
+    const n = scenarioInput.value.length;
+    charCountEl.textContent = n > 0 ? `${n} chars` : '';
+  }
+  scenarioInput.addEventListener('input', updateCharCount);
+  updateCharCount();
+
   // Scenario cards
   el.querySelectorAll('.input-screen__scenario-card').forEach(card => {
     card.addEventListener('click', () => {
-      el.querySelector('#scenario-input').value = card.dataset.scenario;
+      scenarioInput.value = card.dataset.scenario;
+      updateCharCount();
     });
+  });
+
+  // ---------- Participation mode mount ----------
+  const participationMount = el.querySelector('#participation-mount');
+  const participationSummary = el.querySelector('#participation-summary');
+
+  function renderParticipationSummary(cfg) {
+    const mode = cfg.mode;
+    if (mode === PARTICIPATION_MODES.SANDBOX) {
+      participationSummary.textContent = 'Sandbox · agents decide every checkpoint.';
+    } else if (mode === PARTICIPATION_MODES.COMMUNITY) {
+      participationSummary.textContent = `Community · ${DECISION_POINTS.length} checkpoints routed to the crowd.`;
+    } else {
+      const n = cfg.selectedDecisionPoints.length;
+      const ref = cfg.communityAsReference ? ' (community shown as reference)' : '';
+      participationSummary.textContent = `User · pausing on ${n} of ${DECISION_POINTS.length} checkpoints${ref}.`;
+    }
+  }
+
+  const participationEl = createParticipationMode({
+    onChange: (cfg) => renderParticipationSummary(cfg),
+  });
+  participationMount.appendChild(participationEl);
+  renderParticipationSummary(getConfig());
+
+  // ---------- Decision card preview modal ----------
+  const previewEl      = el.querySelector('#decision-preview');
+  const previewPicker  = el.querySelector('#decision-preview-picker');
+  const previewSlot    = el.querySelector('#decision-preview-slot');
+  const previewBtn     = el.querySelector('#btn-preview-card');
+
+  let previewActiveDpId = 'DP-3';
+
+  function renderPreviewPicker() {
+    previewPicker.innerHTML = '';
+    DECISION_POINTS.forEach(dp => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'decision-preview__chip' + (dp.id === previewActiveDpId ? ' active' : '');
+      chip.textContent = `${dp.id}`;
+      chip.title = dp.title;
+      chip.addEventListener('click', () => {
+        previewActiveDpId = dp.id;
+        renderPreviewPicker();
+        renderPreviewSlot();
+      });
+      previewPicker.appendChild(chip);
+    });
+  }
+
+  function renderPreviewSlot() {
+    const dp = getDecisionPoint(previewActiveDpId);
+    if (!dp) return;
+    const cfg = getConfig();
+    // Card mode in preview mirrors the configured mode — but always demo-only.
+    const cardMode = cfg.mode === PARTICIPATION_MODES.COMMUNITY ? 'community' : 'preview';
+    previewSlot.innerHTML = '';
+    const card = createDecisionCard(dp, {
+      mode: cardMode,
+      communityAsReference: cardMode === 'community' ? false : (cfg.communityAsReference || cfg.mode === PARTICIPATION_MODES.SANDBOX),
+      onResolve: ({ optionId, note }) => {
+        const opt = dp.options.find(o => o.id === optionId);
+        window.alert(`Preview only — your pick: ${opt?.label || optionId}${note ? `\nNote: ${note}` : ''}`);
+        closePreview();
+      },
+      onSkip: () => {
+        window.alert('Preview only — agents would take over this checkpoint.');
+        closePreview();
+      },
+    });
+    previewSlot.appendChild(card);
+  }
+
+  function openPreview() {
+    renderPreviewPicker();
+    renderPreviewSlot();
+    previewEl.hidden = false;
+    document.body.style.overflow = 'hidden';
+  }
+  function closePreview() {
+    previewEl.hidden = true;
+    document.body.style.overflow = '';
+  }
+
+  previewBtn.addEventListener('click', openPreview);
+  previewEl.querySelectorAll('[data-action="close"]').forEach(node => {
+    node.addEventListener('click', closePreview);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !previewEl.hidden) closePreview();
   });
 
   // Mode toggle (demo / real)

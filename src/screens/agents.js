@@ -22,6 +22,11 @@ import {
 import { createAgentModal, showAgentDetail, showNodeDetail } from '../components/agent-modal.js';
 import { delay, staggerReveal, formatNumber } from '../utils/animation.js';
 import { fetchProjectData } from '../lib/project_client.js';
+import { getConfig } from '../lib/participation_state.js';
+import {
+  DECISION_POINTS, PARTICIPATION_MODES,
+  computeCommunityLeader, computeAgentConsensus,
+} from '../data/decision_points.js';
 
 // Mutable refs — _loadProject swaps these to the real backend payload.
 let agentCategories = staticAgentCategories;
@@ -461,6 +466,35 @@ export function createAgents(onComplete) {
 
       <!-- ══ PHASE 2: SIMULATION FEED ══ -->
       <div id="phase-sim" class="sandbox-phase" style="display:none;">
+
+        <!-- Stage pipeline tracker -->
+        <div class="sim-stages" id="sim-stages">
+          <div class="sim-stage-step" data-stage="1">
+            <div class="sim-stage-step__dot"></div>
+            <div class="sim-stage-step__name">Ontology</div>
+          </div>
+          <div class="sim-stage-line"></div>
+          <div class="sim-stage-step" data-stage="2">
+            <div class="sim-stage-step__dot"></div>
+            <div class="sim-stage-step__name">Graph build</div>
+          </div>
+          <div class="sim-stage-line"></div>
+          <div class="sim-stage-step" data-stage="3">
+            <div class="sim-stage-step__dot"></div>
+            <div class="sim-stage-step__name">Profiles</div>
+          </div>
+          <div class="sim-stage-line"></div>
+          <div class="sim-stage-step" data-stage="4">
+            <div class="sim-stage-step__dot"></div>
+            <div class="sim-stage-step__name">Simulation</div>
+          </div>
+          <div class="sim-stage-line"></div>
+          <div class="sim-stage-step" data-stage="5">
+            <div class="sim-stage-step__dot"></div>
+            <div class="sim-stage-step__name">Report</div>
+          </div>
+        </div>
+
         <!-- Top bar -->
         <div class="sim-topbar">
           <div class="sim-topbar__left">
@@ -476,6 +510,9 @@ export function createAgents(onComplete) {
           </div>
           <button class="btn btn--sm btn--secondary sim-skip-btn" id="btn-skip-sim">Skip →</button>
         </div>
+
+        <!-- Decision gate — shown when sim pauses at a user-mode checkpoint -->
+        <div class="sim-dp-gate" id="sim-dp-gate" style="display:none;"></div>
 
         <!-- Event feed -->
         <div class="sim-feed" id="sim-feed">
@@ -607,6 +644,327 @@ export function createAgents(onComplete) {
     });
   });
 
+  // ── Stage tracker helper ─────────────────────────────────────────────────
+  function updateStageTracker(activeStage) {
+    el.querySelectorAll('.sim-stage-step').forEach(step => {
+      const s = parseInt(step.dataset.stage);
+      step.classList.toggle('completed', s < activeStage);
+      step.classList.toggle('active', s === activeStage);
+    });
+    el.querySelectorAll('.sim-stage-line').forEach((line, i) => {
+      line.classList.toggle('completed', i + 1 < activeStage);
+    });
+  }
+
+  // ── User decision gate ───────────────────────────────────────────────────
+  function showUserDecisionGate(dp) {
+    return new Promise(resolve => {
+      const feedEl  = el.querySelector('#sim-feed');
+      const gateEl  = el.querySelector('#sim-dp-gate');
+      const consensus     = computeAgentConsensus(dp);
+      const leader        = computeCommunityLeader(dp);
+      const agentOption   = dp.options.find(o => o.id === consensus?.optionId);
+      const communityOpt  = dp.options.find(o => o.id === leader?.optionId);
+      // Voices from agents who share the consensus stance (up to 2)
+      const agentVoices   = dp.agentOpinions.filter(a => a.stance === consensus?.optionId).slice(0, 2);
+
+      gateEl.innerHTML = `
+        <div class="sdg-header">
+          <span class="sdg-badge">Paused · Checkpoint</span>
+          <span class="sdg-stage-pill">Stage ${dp.stage} · ${dp.stageName}</span>
+        </div>
+        <div class="sdg-dp-id">${dp.id}</div>
+        <div class="sdg-title">${dp.title}</div>
+        <div class="sdg-desc">${dp.description}</div>
+
+        <!-- ① Agent recommendation — single consensus answer + expandable detail -->
+        <div class="sdg-section">
+          <div class="sdg-section__label">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>
+            Agent recommendation
+            ${consensus ? `<span class="sdg-consensus-pill">${consensus.count}/${consensus.total} agents agree</span>` : ''}
+          </div>
+          ${agentOption ? `
+            <div class="sdg-answer">
+              <div class="sdg-answer__label">${agentOption.label}</div>
+              <div class="sdg-answer__summary">${agentOption.summary}</div>
+              ${agentVoices.length ? `
+                <div class="sdg-voices">
+                  ${agentVoices.map(v => `
+                    <div class="sdg-voice">
+                      <span class="sdg-voice__name">${v.agent}</span>
+                      <span class="sdg-voice__text">"${v.reasoning}"</span>
+                    </div>
+                  `).join('')}
+                </div>
+              ` : ''}
+            </div>
+            <button class="sdg-view-btn" data-modal="agent">All ${dp.agentOpinions.length} opinions
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          ` : '<div class="sdg-answer__summary">No consensus reached.</div>'}
+        </div>
+
+        <!-- ② Community result — single winning answer + expandable breakdown -->
+        <div class="sdg-section">
+          <div class="sdg-section__label">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><path d="M1 21v-1a7 7 0 0 1 7-7h1"/><path d="M17 14a7 7 0 0 1 7 7v1"/></svg>
+            Community result
+            ${leader ? `<span class="sdg-consensus-pill">${leader.pct}% · ${leader.votes} votes</span>` : ''}
+          </div>
+          ${communityOpt ? `
+            <div class="sdg-answer">
+              <div class="sdg-answer__label">${communityOpt.label}</div>
+              <div class="sdg-answer__summary">${communityOpt.summary}</div>
+            </div>
+            <button class="sdg-view-btn" data-modal="community">Full breakdown
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          ` : ''}
+        </div>
+
+        <!-- ③ Your call — 3 choices; "Other" expands textarea -->
+        <div class="sdg-section sdg-section--input">
+          <div class="sdg-section__label">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            Your call
+          </div>
+          <div class="sdg-choices">
+            <button class="sdg-choice" data-choice="agent">
+              <span class="sdg-choice__key">A</span>
+              <div class="sdg-choice__body">
+                <div class="sdg-choice__tag">Follow agents</div>
+                <div class="sdg-choice__text">${agentOption?.label ?? '—'}</div>
+              </div>
+            </button>
+            <button class="sdg-choice" data-choice="community">
+              <span class="sdg-choice__key">B</span>
+              <div class="sdg-choice__body">
+                <div class="sdg-choice__tag">Follow community</div>
+                <div class="sdg-choice__text">${communityOpt?.label ?? '—'}</div>
+              </div>
+            </button>
+            <button class="sdg-choice" data-choice="other">
+              <span class="sdg-choice__key">C</span>
+              <div class="sdg-choice__body">
+                <div class="sdg-choice__tag">Other</div>
+                <div class="sdg-choice__text">Specify your own direction</div>
+              </div>
+            </button>
+          </div>
+          <textarea
+            class="sdg-input"
+            id="sdg-input"
+            placeholder="Describe your custom decision for this checkpoint…"
+            rows="3"
+            style="display:none; margin-top:8px;"
+          ></textarea>
+        </div>
+
+        <div class="sdg-actions">
+          <button class="sdg-confirm-btn" id="sdg-confirm" disabled>Confirm decision →</button>
+        </div>
+      `;
+
+      gateEl.style.display = 'flex';
+      feedEl.style.display = 'none';
+
+      // Detail modal handlers
+      function openDetailModal(type) {
+        const total = leader?.total ?? 0;
+        let bodyHTML = '';
+        let titleText = '';
+
+        if (type === 'agent') {
+          titleText = `Agent opinions · ${dp.id}`;
+          bodyHTML = dp.agentOpinions.map(op => {
+            const opt = dp.options.find(o => o.id === op.stance);
+            const isConsensus = op.stance === consensus?.optionId;
+            return `
+              <div class="sdg-detail-agent${isConsensus ? ' sdg-detail-agent--consensus' : ''}">
+                <span class="sdg-detail-agent__avatar">${op.agent.slice(0,2).toUpperCase()}</span>
+                <div class="sdg-detail-agent__body">
+                  <div class="sdg-detail-agent__name">${op.agent}
+                    <span class="sdg-detail-agent__stance">${isConsensus ? '✓ consensus' : op.stance}</span>
+                  </div>
+                  <div class="sdg-detail-agent__option">${opt?.label ?? op.stance}</div>
+                  <div class="sdg-detail-agent__reasoning">"${op.reasoning}"</div>
+                </div>
+              </div>`;
+          }).join('');
+        } else {
+          titleText = `Community votes · ${dp.id} · ${total} total`;
+          bodyHTML = [...dp.options]
+            .sort((a,b) => (dp.communityVotes[b.id]||0) - (dp.communityVotes[a.id]||0))
+            .map(o => {
+              const votes = dp.communityVotes[o.id] || 0;
+              const pct   = total ? Math.round((votes / total) * 100) : 0;
+              const isTop = o.id === leader?.optionId;
+              return `
+                <div class="sdg-detail-vote-row${isTop ? ' sdg-detail-vote-row--top' : ''}">
+                  <span class="sdg-detail-vote-id">${o.id}</span>
+                  <div class="sdg-detail-vote-info">
+                    <div class="sdg-detail-vote-label">${o.label}</div>
+                    <div class="sdg-detail-vote-bar-wrap">
+                      <div class="sdg-detail-vote-bar" style="width:${pct}%"></div>
+                    </div>
+                  </div>
+                  <div class="sdg-detail-vote-nums">
+                    <span class="sdg-detail-vote-pct">${pct}%</span>
+                    <span class="sdg-detail-vote-count">${votes} votes</span>
+                  </div>
+                </div>`;
+            }).join('') + `
+            <a class="sdg-detail-link" href="#" target="_blank" rel="noopener">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              View original community vote thread
+            </a>`;
+        }
+
+        const overlay = document.createElement('div');
+        overlay.className = 'sdg-modal-overlay';
+        overlay.innerHTML = `
+          <div class="sdg-modal-card">
+            <div class="sdg-modal-head">
+              <div class="sdg-modal-title">${titleText}</div>
+              <button class="sdg-modal-close" aria-label="Close">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <div class="sdg-modal-body">${bodyHTML}</div>
+          </div>`;
+
+        document.body.appendChild(overlay);
+        requestAnimationFrame(() => overlay.classList.add('visible'));
+
+        const closeModal = () => {
+          overlay.classList.remove('visible');
+          overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
+        };
+        overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
+        overlay.querySelector('.sdg-modal-close').addEventListener('click', closeModal);
+      }
+
+      gateEl.querySelectorAll('.sdg-view-btn').forEach(btn => {
+        btn.addEventListener('click', () => openDetailModal(btn.dataset.modal));
+      });
+
+      const textarea   = gateEl.querySelector('#sdg-input');
+      const confirmBtn = gateEl.querySelector('#sdg-confirm');
+      let selectedChoice = null;
+
+      gateEl.querySelectorAll('.sdg-choice').forEach(btn => {
+        btn.addEventListener('click', () => {
+          gateEl.querySelectorAll('.sdg-choice').forEach(b => b.classList.remove('selected'));
+          btn.classList.add('selected');
+          selectedChoice = btn.dataset.choice;
+
+          if (selectedChoice === 'other') {
+            textarea.style.display = 'block';
+            textarea.focus();
+            confirmBtn.disabled = textarea.value.trim().length === 0;
+          } else {
+            textarea.style.display = 'none';
+            confirmBtn.disabled = false;
+          }
+        });
+      });
+
+      textarea.addEventListener('input', () => {
+        if (selectedChoice === 'other') {
+          confirmBtn.disabled = textarea.value.trim().length === 0;
+        }
+      });
+
+      confirmBtn.addEventListener('click', () => {
+        let decisionText, decisionSource;
+        if (selectedChoice === 'agent') {
+          decisionText = agentOption.label + ' — ' + agentOption.summary;
+          decisionSource = 'Agents';
+        } else if (selectedChoice === 'community') {
+          decisionText = communityOpt.label + ' — ' + communityOpt.summary;
+          decisionSource = 'Community';
+        } else {
+          decisionText = textarea.value.trim();
+          decisionSource = 'Custom';
+        }
+
+        gateEl.style.display = 'none';
+        feedEl.style.display = '';
+
+        const card = document.createElement('div');
+        card.className = 'sim-post sim-post--user-decision';
+        card.innerHTML = `
+          <div class="sim-post__avatar sim-post__avatar--decision">✓</div>
+          <div class="sim-post__content">
+            <div class="sim-post__header">
+              <span class="sim-post__handle" style="color:#60A5FA;">Your decision</span>
+              <span class="sim-post__meta">${dp.id} · via ${decisionSource}</span>
+            </div>
+            <div class="sim-post__text">${decisionText}</div>
+            <div class="sim-post__footer">
+              <span class="sim-post__sentiment" style="background:rgba(96,165,250,0.15);color:#60A5FA;">applied</span>
+            </div>
+          </div>
+        `;
+        feedEl.appendChild(card);
+        feedEl.scrollTop = feedEl.scrollHeight;
+        card.style.opacity = '0';
+        requestAnimationFrame(() => {
+          card.style.transition = 'opacity 0.3s ease';
+          card.style.opacity = '1';
+        });
+
+        resolve({ choice: selectedChoice, text: decisionText });
+      });
+    });
+  }
+
+  // ── Community vote card ──────────────────────────────────────────────────
+  function injectCommunityVoteCard(feedEl, dp) {
+    const leader = computeCommunityLeader(dp);
+    const total = Object.values(dp.communityVotes).reduce((a, b) => a + b, 0);
+
+    const card = document.createElement('div');
+    card.className = 'sim-post sim-post--community-vote';
+    card.style.opacity = '0';
+    card.style.transform = 'translateY(10px)';
+    card.innerHTML = `
+      <div class="spcv-header">
+        <span class="spcv-badge">Community vote</span>
+        <span class="spcv-stage">Stage ${dp.stage} · ${dp.stageName}</span>
+      </div>
+      <div class="spcv-title">${dp.id} · ${dp.title}</div>
+      <div class="spcv-bars">
+        ${dp.options.map(o => {
+          const votes = dp.communityVotes[o.id] || 0;
+          const pct = total ? Math.round((votes / total) * 100) : 0;
+          const isWinner = o.id === leader?.optionId;
+          return `
+            <div class="spcv-bar-row${isWinner ? ' winner' : ''}">
+              <span class="spcv-bar-id">${o.id}</span>
+              <div class="spcv-bar-track">
+                <div class="spcv-bar-fill" style="width:${pct}%"></div>
+              </div>
+              <span class="spcv-bar-pct">${pct}%</span>
+              <span class="spcv-bar-label">${o.label}</span>
+            </div>
+          `;
+        }).join('')}
+      </div>
+      <div class="spcv-result">
+        Applied option ${leader?.optionId}: "${leader?.option?.label}"
+      </div>
+    `;
+    feedEl.appendChild(card);
+    feedEl.scrollTop = feedEl.scrollHeight;
+    requestAnimationFrame(() => {
+      card.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
+      card.style.opacity = '1';
+      card.style.transform = 'translateY(0)';
+    });
+  }
+
   // ── Phase transition: World Build → Simulation ──────────────────────
   el._runSimulation = async () => {
     const phaseBuild = el.querySelector('#phase-build');
@@ -639,10 +997,44 @@ export function createAgents(onComplete) {
     feedEl.innerHTML = '';
     await delay(400);
 
+    // ── Participation config & checkpoints ──
+    const cfg = getConfig();
+    const triggeredDPs = new Set();
+
+    // Stage boundaries — which stage is active at a given progress %
+    const STAGE_BOUNDARIES = [0.20, 0.40, 0.60, 0.80, 1.00];
+    const DP_TRIGGER_PCTS = {
+      'DP-1': 0.18, 'DP-2': 0.35, 'DP-3': 0.50, 'DP-4': 0.58,
+      'DP-5': 0.68, 'DP-6': 0.78, 'DP-7': 0.88,
+    };
+
+    // Initialise stage tracker
+    updateStageTracker(1);
+
     for (let i = 0; i < simulationPosts.length; i++) {
       const post     = simulationPosts[i];
       const roundNum = Math.round(((i + 1) / simulationPosts.length) * 120);
       roundEl.textContent = roundNum;
+
+      // ── Stage tracker update ──
+      const pct = (i + 1) / simulationPosts.length;
+      const stageIdx = STAGE_BOUNDARIES.findIndex(b => pct <= b);
+      updateStageTracker(stageIdx >= 0 ? stageIdx + 1 : 5);
+
+      // ── Decision point checkpoints ──
+      for (const dp of DECISION_POINTS) {
+        if (triggeredDPs.has(dp.id)) continue;
+        const trigPct = DP_TRIGGER_PCTS[dp.id];
+        if (trigPct === undefined || pct < trigPct) continue;
+        triggeredDPs.add(dp.id);
+
+        if (cfg.mode === PARTICIPATION_MODES.USER && cfg.selectedDecisionPoints.includes(dp.id)) {
+          await showUserDecisionGate(dp);
+        } else if (cfg.mode === PARTICIPATION_MODES.COMMUNITY) {
+          injectCommunityVoteCard(feedEl, dp);
+          await delay(800);
+        }
+      }
 
       const metricIdx = Math.min(Math.floor((i / simulationPosts.length) * metricsTimeline.length), metricsTimeline.length - 1);
       const m = metricsTimeline[metricIdx];
