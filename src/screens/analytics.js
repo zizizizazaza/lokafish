@@ -23,7 +23,24 @@ let sentimentDataOverride = null;
 // by lowercased district name for fuzzy matching against Leaflet hotspots.
 let leafletDistrictOverrides = new Map();
 
+// Dispatch a selection event on the window so the Report's chat panel
+// (or anywhere else interested) can scope its next question to the
+// data point the user just clicked. Keep the payload small and
+// self-describing — the chat panel displays `chart` + `label` and
+// passes `summary` to the LLM as extra context.
+function emitChartSelection({ chart, label, summary, details }) {
+  try {
+    window.dispatchEvent(new CustomEvent('loka:chart-selected', {
+      detail: { chart, label, summary, details: details || {} },
+    }));
+  } catch (_) { /* no-op */ }
+}
+
 export function createAnalytics(onComplete) {
+  // Thin wrapper around createAnalyticsSection so the navigation layer
+  // can still mount analytics as a standalone screen if ever needed.
+  // Current production flow embeds the section inline inside the
+  // Report screen instead — see createAnalyticsSection below.
   const el = document.createElement('div');
   el.className = 'screen analytics-screen';
   el.id = 'screen-analytics';
@@ -34,7 +51,32 @@ export function createAnalytics(onComplete) {
       <h2 class="analytics-screen__title">Simulation Results</h2>
       <p style="color: var(--text-secondary); font-size: 14px;">Click any chart element for detailed breakdowns</p>
     </div>
+    <div id="analytics-section-mount"></div>
+    <div style="text-align: center; padding: 16px 0;">
+      <button class="btn btn--primary btn--lg" id="btn-gen-report">Generate Research Report →</button>
+    </div>
+  `;
 
+  const section = createAnalyticsSection();
+  el.querySelector('#analytics-section-mount').appendChild(section.element);
+  el.querySelector('#btn-gen-report').addEventListener('click', onComplete);
+
+  el._runAnimation = section.runAnimation;
+  el._loadProject  = section.loadProject;
+  return el;
+}
+
+/**
+ * Builds just the analytics panels (map + 4 charts) as a detached DOM
+ * subtree so it can be mounted inline inside the Report screen. Returns
+ * lifecycle hooks the host screen can trigger from its own animation +
+ * real-mode loaders.
+ */
+export function createAnalyticsSection() {
+  const el = document.createElement('div');
+  el.className = 'analytics-section';
+
+  el.innerHTML = `
     <div class="analytics-screen__grid">
       <div class="analytics-panel analytics-panel--wide" style="animation-delay: 0.08s;">
         <div class="analytics-panel__title">Singapore Economic Impact Map</div>
@@ -86,13 +128,7 @@ export function createAnalytics(onComplete) {
         <div class="analytics-tooltip" id="sentiment-tooltip"></div>
       </div>
     </div>
-
-    <div style="text-align: center; padding: 16px 0;">
-      <button class="btn btn--primary btn--lg" id="btn-gen-report">Generate Research Report →</button>
-    </div>
   `;
-
-  el.querySelector('#btn-gen-report').addEventListener('click', onComplete);
 
   // ——— Real Singapore map with Leaflet ———
   const setupLeafletMap = () => {
@@ -188,6 +224,17 @@ export function createAnalytics(onComplete) {
           <div><strong>Agents:</strong> ${spot.agents}</div>
           <div><strong>Density:</strong> ${(spot.density * 100).toFixed(0)}%</div>
         `;
+        emitChartSelection({
+          chart: 'Economic Impact Map',
+          label: spot.name,
+          summary: `${spot.name}: economic impact ${spot.impact}, ${spot.agents} active agents, density ${(spot.density * 100).toFixed(0)}%.`,
+          details: {
+            district: spot.name,
+            impact: spot.impact,
+            activeAgents: spot.agents,
+            densityPct: Number((spot.density * 100).toFixed(0)),
+          },
+        });
       });
 
       circle.on('mouseover', () => circle.setStyle({ fillOpacity: 0.45, weight: 2.5 }));
@@ -273,7 +320,11 @@ export function createAnalytics(onComplete) {
     }
   };
 
-  return el;
+  return {
+    element: el,
+    runAnimation: el._runAnimation,
+    loadProject: el._loadProject,
+  };
 }
 
 // ——— Shared chart utilities ———
@@ -357,6 +408,18 @@ function drawGDPChart(el) {
           <div style="color:var(--blue);margin-top:4px;">Total Uplift: <strong>+${data.withConcert[i] - data.baseline[i]}%</strong></div>
           <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">Monte Carlo n=10,000</div>
         `);
+        emitChartSelection({
+          chart: 'GDP Growth Projection',
+          label: data.labels[i],
+          summary: `GDP index ${data.withConcert[i]} vs baseline ${data.baseline[i]} (80% CI [${lower[i]}, ${upper[i]}], uplift +${data.withConcert[i] - data.baseline[i]}%).`,
+          details: {
+            period: data.labels[i],
+            projection: data.withConcert[i],
+            baseline: data.baseline[i],
+            ciLower: lower[i],
+            ciUpper: upper[i],
+          },
+        });
         return;
       }
     }
@@ -469,14 +532,26 @@ function drawIndustryBars(el) {
     for (let i = 0; i < barRects.length; i++) {
       const r = barRects[i];
       if (mx >= r.x && mx <= r.x + r.w + 60 && my >= r.y && my <= r.y + r.h) {
+        const share = (r.item.value / industryData.reduce((s, d) => s + d.value, 0) * 100).toFixed(1);
         showTooltip(tooltip, mx + 10, my - 50, `
           <div style="font-weight:600;font-size:14px">${r.item.label}</div>
           <hr style="border:none;border-top:1px solid var(--border);margin:4px 0;">
           <div>Direct Revenue: <strong>$${r.item.value}M</strong></div>
           <div>YoY Growth: <strong>${r.item.growth}</strong></div>
-          <div>Share of Total: ${(r.item.value / industryData.reduce((s, d) => s + d.value, 0) * 100).toFixed(1)}%</div>
+          <div>Share of Total: ${share}%</div>
           <div>Employment: ~${Math.round(r.item.value * 28)} jobs</div>
         `);
+        emitChartSelection({
+          chart: 'Industry Impact',
+          label: r.item.label,
+          summary: `Direct revenue $${r.item.value}M, YoY growth ${r.item.growth}, ${share}% of total industry impact, ~${Math.round(r.item.value * 28)} jobs supported.`,
+          details: {
+            industry: r.item.label,
+            revenueMillions: r.item.value,
+            yoyGrowth: r.item.growth,
+            sharePct: Number(share),
+          },
+        });
         break;
       }
     }
@@ -565,6 +640,18 @@ function drawVisitorFlow(el) {
             <div>Avg. Daily Spend: ${market.daily}/person</div>
             <div>Avg. Stay: ${market.stay} nights</div>
           `);
+          emitChartSelection({
+            chart: 'Visitor Origin Distribution',
+            label: slice.src.label,
+            summary: `${slice.src.value}K visitors from ${slice.src.label} (${(slice.src.value / total * 100).toFixed(1)}% of total). Avg daily spend ${market.daily}, avg stay ${market.stay} nights.`,
+            details: {
+              market: slice.src.label,
+              visitorsThousands: slice.src.value,
+              sharePct: Number((slice.src.value / total * 100).toFixed(1)),
+              avgDailySpend: market.daily,
+              avgStayNights: Number(market.stay),
+            },
+          });
           return;
         }
       }
@@ -675,6 +762,7 @@ function drawSentimentChart(el) {
     for (let i = 0; i < sentimentData.length; i++) {
       if (Math.abs(mx - getX(i)) < 20) {
         const d = sentimentData[i];
+        const postsAnalyzed = Math.round(4200 * (1 + i * 0.3));
         showTooltip(tooltip, mx + 10, e.clientY - rect.top - 60, `
           <div style="font-weight:600;font-size:14px">${d.label}</div>
           <hr style="border:none;border-top:1px solid var(--border);margin:4px 0;">
@@ -682,10 +770,23 @@ function drawSentimentChart(el) {
           <div style="color:#9B9A97">Neutral: ${(d.neutral * 100).toFixed(0)}%</div>
           <div style="color:#E03E3E">Negative: ${(d.negative * 100).toFixed(0)}%</div>
           <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">
-            Posts analyzed: ${Math.round(4200 * (1 + i * 0.3)).toLocaleString()}<br>
+            Posts analyzed: ${postsAnalyzed.toLocaleString()}<br>
             Net sentiment: +${(d.positive - d.negative).toFixed(2)}
           </div>
         `);
+        emitChartSelection({
+          chart: 'Sentiment Timeline',
+          label: d.label,
+          summary: `Sentiment at ${d.label}: ${(d.positive * 100).toFixed(0)}% positive, ${(d.neutral * 100).toFixed(0)}% neutral, ${(d.negative * 100).toFixed(0)}% negative (n=${postsAnalyzed.toLocaleString()}, net +${(d.positive - d.negative).toFixed(2)}).`,
+          details: {
+            period: d.label,
+            positivePct: Number((d.positive * 100).toFixed(1)),
+            neutralPct: Number((d.neutral * 100).toFixed(1)),
+            negativePct: Number((d.negative * 100).toFixed(1)),
+            netSentiment: Number((d.positive - d.negative).toFixed(2)),
+            postsAnalyzed,
+          },
+        });
         return;
       }
     }

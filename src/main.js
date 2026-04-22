@@ -5,7 +5,6 @@ import { createLanding } from './screens/landing.js';
 import { createInput } from './screens/input.js';
 import { createPlan } from './screens/plan.js';
 import { createAgents } from './screens/agents.js';
-import { createAnalytics } from './screens/analytics.js';
 import { createReport } from './screens/report.js';
 
 const app = document.querySelector('#app');
@@ -28,9 +27,7 @@ navbar.innerHTML = `
     <div class="navbar__step-line"></div>
     <button class="navbar__step" data-screen="3"><span class="navbar__step-dot"></span> Simulation</button>
     <div class="navbar__step-line"></div>
-    <button class="navbar__step" data-screen="4"><span class="navbar__step-dot"></span> Analytics</button>
-    <div class="navbar__step-line"></div>
-    <button class="navbar__step" data-screen="5"><span class="navbar__step-dot"></span> Report</button>
+    <button class="navbar__step" data-screen="4"><span class="navbar__step-dot"></span> Report</button>
   </div>
   <div class="navbar__actions">
     <button class="btn btn--ghost btn--sm" style="font-family: var(--font-mono); font-size: 11px;">v1.0</button>
@@ -86,10 +83,9 @@ function init() {
     onBack:   () => goToScreen(1),
   });
   const agents    = createAgents(() => goToScreen(4));
-  const analytics = createAnalytics(() => goToScreen(5));
   const report    = createReport();
 
-  screens.push(landing, input, plan, agents, analytics, report);
+  screens.push(landing, input, plan, agents, report);
 
   setTimeout(() => {
     const restartBtn = report.querySelector('#btn-restart');
@@ -106,7 +102,6 @@ function init() {
     if (!projectId) return;
     screens.forEach(s => s._animated = false);
     if (agents._loadProject)    agents._loadProject(projectId);
-    if (analytics._loadProject) analytics._loadProject(projectId);
     if (report._loadProject)    report._loadProject(projectId);
   }
 
@@ -118,17 +113,18 @@ function init() {
     goToScreen(3);
   });
 
-  // If the page loads with #agents?project=xxx / #analytics?project=xxx /
-  // #report?project=xxx already in the URL, hydrate and jump.
+  // If the page loads with #agents?project=xxx / #report?project=xxx
+  // already in the URL, hydrate and jump. (Analytics was merged into
+  // the Report screen — #analytics still works but lands on Report.)
   if (window.location.hash) {
-    const hashScreens = { '#agents': 3, '#analytics': 4, '#report': 5 };
+    const hashScreens = { '#agents': 3, '#analytics': 4, '#report': 4 };
     const screenKey = Object.keys(hashScreens).find(k => window.location.hash.startsWith(k));
     const m = window.location.hash.match(/project=([^&]+)/);
     if (m && m[1]) {
       const pid = decodeURIComponent(m[1]);
       setTimeout(() => {
         loadProjectIntoAllScreens(pid);
-        goToScreen(hashScreens[screenKey] ?? 5);
+        goToScreen(hashScreens[screenKey] ?? 4);
       }, 150);
     }
   }

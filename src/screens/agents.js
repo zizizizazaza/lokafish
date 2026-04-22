@@ -1207,10 +1207,10 @@ export function createAgents(onComplete) {
       <div class="sim-post__content">
         <div class="sim-post__handle" style="color:#34D399;">Loka Engine</div>
         <div class="sim-post__text" style="color:#F1F5F9;">
-          Simulation complete. 120 rounds processed across 2,000 agents. Ready to generate analytics and report.
+          Simulation complete. 120 rounds processed across 2,000 agents. Ready to generate the research report.
         </div>
         <div style="margin-top:12px;">
-          <button class="btn btn--primary btn--sm" id="btn-view-analytics">View Analytics →</button>
+          <button class="btn btn--primary btn--sm" id="btn-view-analytics">View Report →</button>
         </div>
       </div>
     `;

@@ -9,6 +9,7 @@ import { reportContent as staticReportContent } from '../data/report.js';
 import { delay } from '../utils/animation.js';
 import { fetchProjectData, adaptReportForFrontend } from '../lib/project_client.js';
 import { renderInlineChart, CHART_TITLES } from '../components/inline-charts.js';
+import { createAnalyticsSection } from './analytics.js';
 
 // Mutable so _loadProject can swap to a backend-fetched consulting report.
 let reportContent = staticReportContent;
@@ -203,6 +204,7 @@ export function createReport() {
           <div class="report-toc__title">Table of Contents</div>
           <div class="report-toc__items">
             <a class="report-toc__item" href="#abstract">Abstract</a>
+            <a class="report-toc__item" href="#analytics"><span class="mono">§</span> Quantitative Analytics</a>
             ${reportContent.sections.map(s => `<a class="report-toc__item" href="#section-${s.num}"><span class="mono">${s.num}</span> ${s.title}</a>`).join('')}
             <a class="report-toc__item" href="#references">References</a>
             <a class="report-toc__item" href="#appendix">Appendix: Risk Factors</a>
@@ -221,6 +223,19 @@ export function createReport() {
           <div style="text-align:center;font-size:11px;color:var(--text-muted);margin-top:4px;">
             Figure 1: GDP Impact Projection — Baseline vs. Concert Scenario
           </div>
+        </div>
+
+        <!-- Analytics section — previously a standalone screen, now
+             embedded into the paper so the report is the single source
+             of truth for both narrative and quantitative evidence. -->
+        <div class="report-section report-section--analytics" data-reveal id="analytics">
+          <div class="report-section__title"><span class="mono">§</span>Quantitative Analytics</div>
+          <div class="report-section__body">
+            <p style="color:var(--text-secondary);font-size:13px;margin:0 0 14px;">
+              Interactive dashboards derived from the multi-agent simulation. Click any chart element for detailed breakdowns.
+            </p>
+          </div>
+          <div id="report-analytics-mount"></div>
         </div>
 
         ${reportContent.sections.map(s => `
@@ -279,6 +294,21 @@ export function createReport() {
         <div class="report-chat__suggestions" id="report-suggestions">
           ${chatSuggestions.map(s => `<button class="report-chat__suggestion">${s}</button>`).join('')}
         </div>
+        <!-- Active chart-selection context. Shown when the user clicks a
+             chart data point; the chip scopes their next question to
+             that data and can be dismissed with the × button. -->
+        <div class="report-chat__context" id="report-chat-context" hidden>
+          <div class="report-chat__context-head">
+            <svg class="report-chat__context-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+            <span class="report-chat__context-label">Asking about</span>
+            <button class="report-chat__context-clear" id="report-chat-context-clear" aria-label="Clear selection">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="report-chat__context-chart" id="report-chat-context-chart"></div>
+          <div class="report-chat__context-value" id="report-chat-context-value"></div>
+          <div class="report-chat__context-summary" id="report-chat-context-summary"></div>
+        </div>
         <div class="report-chat__input">
           <input type="text" placeholder="Ask about the report..." id="report-chat-input" />
           <button class="btn btn--primary btn--sm" id="btn-report-send">→</button>
@@ -304,16 +334,73 @@ export function createReport() {
     setTimeout(() => { btn.textContent = 'Export PDF'; btn.disabled = false; }, 2000);
   });
 
+  // ── Chart-selection context ─────────────────────────────────────────
+  // Listens for `loka:chart-selected` events dispatched by the embedded
+  // analytics section (map click, bar click, pie slice, sentiment dot,
+  // GDP point). The chip above the chat input shows the selection and
+  // scopes the next outgoing question to that data point.
+  let activeChartSelection = null;
+  const ctxEl         = el.querySelector('#report-chat-context');
+  const ctxChartEl    = el.querySelector('#report-chat-context-chart');
+  const ctxValueEl    = el.querySelector('#report-chat-context-value');
+  const ctxSummaryEl  = el.querySelector('#report-chat-context-summary');
+  const ctxClearEl    = el.querySelector('#report-chat-context-clear');
+  const chatInputEl   = el.querySelector('#report-chat-input');
+
+  function showChartContext(sel) {
+    activeChartSelection = sel;
+    if (!ctxEl) return;
+    ctxChartEl.textContent   = sel.chart;
+    ctxValueEl.textContent   = sel.label;
+    ctxSummaryEl.textContent = sel.summary || '';
+    ctxEl.hidden = false;
+    // Nudge the input placeholder so users know questions are scoped
+    if (chatInputEl) chatInputEl.placeholder = `Ask about ${sel.label}…`;
+  }
+  function clearChartContext() {
+    activeChartSelection = null;
+    if (!ctxEl) return;
+    ctxEl.hidden = true;
+    if (chatInputEl) chatInputEl.placeholder = 'Ask about the report...';
+  }
+  if (ctxClearEl) ctxClearEl.addEventListener('click', clearChartContext);
+
+  const onChartSelected = (e) => {
+    if (!e.detail) return;
+    showChartContext(e.detail);
+    // Pull focus to the chat input so the next keystroke flows there
+    if (chatInputEl) chatInputEl.focus();
+  };
+  window.addEventListener('loka:chart-selected', onChartSelected);
+
   // Chat functionality
   // Chat — calls real backend LLM (/api/chat/stream) with conversation history.
   async function sendChat(question) {
     const messagesEl = el.querySelector('#report-chat-messages');
 
+    // Snapshot and clear the chart-selection chip so the next question
+    // starts fresh. The snapshot is attached to the user's message
+    // bubble (for display) AND prepended to the LLM payload (as scope).
+    const selection = activeChartSelection;
+    clearChartContext();
+
     const userMsg = document.createElement('div');
     userMsg.className = 'report-chat__msg report-chat__msg--user';
-    userMsg.innerHTML = `<div class="report-chat__msg-content">${question}</div>`;
+    const selBadge = selection
+      ? `<div class="report-chat__msg-badge">
+           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+           <span>${selection.chart} · <strong>${selection.label}</strong></span>
+         </div>`
+      : '';
+    userMsg.innerHTML = `<div class="report-chat__msg-content">${selBadge}${question}</div>`;
     messagesEl.appendChild(userMsg);
     messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    // The message handed to the LLM includes a short context preamble
+    // so the model can anchor its answer on the selected data point.
+    const llmQuestion = selection
+      ? `[Context: user clicked "${selection.chart}" → ${selection.label}. ${selection.summary || ''}]\n\n${question}`
+      : question;
 
     const svgDoc = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
     const svgTable = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/></svg>';
@@ -393,7 +480,7 @@ export function createReport() {
     };
 
     try {
-      await streamChatApi(question, { onFirstDelta, onDelta });
+      await streamChatApi(llmQuestion, { onFirstDelta, onDelta });
     } catch (err) {
       cancelSteps = true;
       if (thinkingEl.parentNode) thinkingEl.remove();
@@ -422,6 +509,12 @@ export function createReport() {
     if (e.key === 'Enter') el.querySelector('#btn-report-send').click();
   });
 
+  // Mount the analytics panels inline inside the paper. Keep a handle so
+  // _runAnimation / _loadProject can forward their hooks to this section.
+  const analyticsSection = createAnalyticsSection();
+  const analyticsMount = el.querySelector('#report-analytics-mount');
+  if (analyticsMount) analyticsMount.appendChild(analyticsSection.element);
+
   el._runAnimation = async () => {
     await delay(150);
     const sections = el.querySelectorAll('[data-reveal]');
@@ -434,6 +527,12 @@ export function createReport() {
     }
     const miniCanvas = el.querySelector('#report-mini-chart');
     if (miniCanvas) drawMiniChart(miniCanvas);
+    // Fire the embedded analytics animation (map + 4 charts)
+    if (analyticsSection.runAnimation) {
+      analyticsSection.runAnimation().catch((err) =>
+        console.warn('analytics section animation failed:', err)
+      );
+    }
     // Hydrate any inline chart placeholders that the real-mode consulting
     // template paper might have inserted.
     hydrateInlineCharts(el.querySelector('#report-paper'), cachedAnalytics);
@@ -491,6 +590,36 @@ export function createReport() {
         section.style.transform = 'translateY(0)';
         section.style.transition = 'all 0.35s ease';
       });
+
+      // Re-insert the analytics section (paper.innerHTML wiped its mount).
+      // Appending it after the last data-reveal keeps it inside the paper
+      // scroll column, directly before the global report actions.
+      const analyticsWrap = document.createElement('div');
+      analyticsWrap.className = 'report-section report-section--analytics';
+      analyticsWrap.id = 'analytics';
+      analyticsWrap.innerHTML = `
+        <div class="report-section__title"><span class="mono">§</span>Quantitative Analytics</div>
+        <div class="report-section__body">
+          <p style="color:var(--text-secondary);font-size:13px;margin:0 0 14px;">
+            Interactive dashboards derived from the multi-agent simulation.
+          </p>
+        </div>
+      `;
+      analyticsWrap.appendChild(analyticsSection.element);
+      const actionsEl = paperEl.querySelector('.report-actions');
+      if (actionsEl) actionsEl.parentNode.insertBefore(analyticsWrap, actionsEl);
+      else paperEl.appendChild(analyticsWrap);
+
+      // Hydrate the analytics section with backend data and fire its
+      // chart animation so the embedded map + 4 charts match this project.
+      if (analyticsSection.loadProject) {
+        try { await analyticsSection.loadProject(projectId); } catch (e) { /* no-op */ }
+      }
+      if (analyticsSection.runAnimation) {
+        analyticsSection.runAnimation().catch((err) =>
+          console.warn('analytics section animation failed:', err)
+        );
+      }
 
       // Reset chat panel to a fresh greeting
       const messagesEl = el.querySelector('#report-chat-messages');
