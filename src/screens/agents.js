@@ -22,10 +22,12 @@ import {
 import { createAgentModal, showAgentDetail, showNodeDetail } from '../components/agent-modal.js';
 import { delay, staggerReveal, formatNumber } from '../utils/animation.js';
 import { fetchProjectData } from '../lib/project_client.js';
-import { getConfig } from '../lib/participation_state.js';
+import { getConfig, getCurrentPlan } from '../lib/participation_state.js';
 import {
   DECISION_POINTS, PARTICIPATION_MODES,
   computeCommunityLeader, computeAgentConsensus,
+  planStepsToDecisionPointIds,
+  PLAN_STEP_TO_DP_IDS,
 } from '../data/decision_points.js';
 
 // Mutable refs — _loadProject swaps these to the real backend payload.
@@ -656,8 +658,30 @@ export function createAgents(onComplete) {
     });
   }
 
+  // Build an inverse lookup: DP-id → plan step number, titled from the
+  // *current plan* so the paused-checkpoint card reads in the user's own
+  // terms (no "DP-1", no "Stage 1 · Ontology" jargon).
+  function buildDpContext(plan) {
+    const byDpId = {};
+    if (!plan) return byDpId;
+    for (const [stepNStr, dpIds] of Object.entries(PLAN_STEP_TO_DP_IDS)) {
+      const stepN = Number(stepNStr);
+      const planStep = plan.steps.find(s => s.n === stepN);
+      if (!planStep) continue;
+      dpIds.forEach((id) => {
+        byDpId[id] = { planStep };
+      });
+    }
+    return byDpId;
+  }
+
   // ── User decision gate ───────────────────────────────────────────────────
-  function showUserDecisionGate(dp) {
+  //
+  // Header uses plan-step vocabulary:
+  //   "Checkpoint 2 of 4"  (ordinal within the user's selected gates)
+  //   "Step 2 · Build US equity market ontology"  (plain plan step name)
+  // No more "DP-X" / "Stage X · StageName" — the user never saw those terms.
+  function showUserDecisionGate(dp, { ordinal, totalCheckpoints, planStep } = {}) {
     return new Promise(resolve => {
       const feedEl  = el.querySelector('#sim-feed');
       const gateEl  = el.querySelector('#sim-dp-gate');
@@ -668,12 +692,18 @@ export function createAgents(onComplete) {
       // Voices from agents who share the consensus stance (up to 2)
       const agentVoices   = dp.agentOpinions.filter(a => a.stance === consensus?.optionId).slice(0, 2);
 
+      const stepLabel = planStep
+        ? `Step ${planStep.n} · ${planStep.title}`
+        : `Step · ${dp.title}`;
+      const ordLabel = (ordinal && totalCheckpoints)
+        ? `Checkpoint ${ordinal} of ${totalCheckpoints}`
+        : 'Checkpoint';
+
       gateEl.innerHTML = `
         <div class="sdg-header">
-          <span class="sdg-badge">Paused · Checkpoint</span>
-          <span class="sdg-stage-pill">Stage ${dp.stage} · ${dp.stageName}</span>
+          <span class="sdg-badge">Paused · ${ordLabel}</span>
+          <span class="sdg-stage-pill">${stepLabel}</span>
         </div>
-        <div class="sdg-dp-id">${dp.id}</div>
         <div class="sdg-title">${dp.title}</div>
         <div class="sdg-desc">${dp.description}</div>
 
@@ -681,8 +711,8 @@ export function createAgents(onComplete) {
         <div class="sdg-section">
           <div class="sdg-section__label">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>
-            Agent recommendation
-            ${consensus ? `<span class="sdg-consensus-pill">${consensus.count}/${consensus.total} agents agree</span>` : ''}
+            What the agents recommend
+            ${consensus ? `<span class="sdg-consensus-pill">${consensus.count} of ${consensus.total} agents</span>` : ''}
           </div>
           ${agentOption ? `
             <div class="sdg-answer">
@@ -690,6 +720,7 @@ export function createAgents(onComplete) {
               <div class="sdg-answer__summary">${agentOption.summary}</div>
               ${agentVoices.length ? `
                 <div class="sdg-voices">
+                  <div class="sdg-voices__intro">Why they picked this:</div>
                   ${agentVoices.map(v => `
                     <div class="sdg-voice">
                       <span class="sdg-voice__name">${v.agent}</span>
@@ -699,7 +730,7 @@ export function createAgents(onComplete) {
                 </div>
               ` : ''}
             </div>
-            <button class="sdg-view-btn" data-modal="agent">All ${dp.agentOpinions.length} opinions
+            <button class="sdg-view-btn" data-modal="agent">See all ${dp.agentOpinions.length} agent opinions
               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
             </button>
           ` : '<div class="sdg-answer__summary">No consensus reached.</div>'}
@@ -776,7 +807,7 @@ export function createAgents(onComplete) {
         let titleText = '';
 
         if (type === 'agent') {
-          titleText = `Agent opinions · ${dp.id}`;
+          titleText = planStep ? `Agent opinions · Step ${planStep.n}` : `Agent opinions`;
           bodyHTML = dp.agentOpinions.map(op => {
             const opt = dp.options.find(o => o.id === op.stance);
             const isConsensus = op.stance === consensus?.optionId;
@@ -793,7 +824,9 @@ export function createAgents(onComplete) {
               </div>`;
           }).join('');
         } else {
-          titleText = `Community votes · ${dp.id} · ${total} total`;
+          titleText = planStep
+            ? `Community votes · Step ${planStep.n} · ${total} total`
+            : `Community votes · ${total} total`;
           bodyHTML = [...dp.options]
             .sort((a,b) => (dp.communityVotes[b.id]||0) - (dp.communityVotes[a.id]||0))
             .map(o => {
@@ -899,7 +932,7 @@ export function createAgents(onComplete) {
           <div class="sim-post__content">
             <div class="sim-post__header">
               <span class="sim-post__handle" style="color:#60A5FA;">Your decision</span>
-              <span class="sim-post__meta">${dp.id} · via ${decisionSource}</span>
+              <span class="sim-post__meta">${planStep ? `Step ${planStep.n}` : 'Checkpoint'} · via ${decisionSource}</span>
             </div>
             <div class="sim-post__text">${decisionText}</div>
             <div class="sim-post__footer">
@@ -921,9 +954,13 @@ export function createAgents(onComplete) {
   }
 
   // ── Community vote card ──────────────────────────────────────────────────
-  function injectCommunityVoteCard(feedEl, dp) {
+  function injectCommunityVoteCard(feedEl, dp, { ordinal, totalCheckpoints, planStep } = {}) {
     const leader = computeCommunityLeader(dp);
     const total = Object.values(dp.communityVotes).reduce((a, b) => a + b, 0);
+    const stepLabel = planStep ? `Step ${planStep.n} · ${planStep.title}` : dp.stageName;
+    const ordLabel = (ordinal && totalCheckpoints)
+      ? `${ordinal} of ${totalCheckpoints}`
+      : '';
 
     const card = document.createElement('div');
     card.className = 'sim-post sim-post--community-vote';
@@ -931,10 +968,10 @@ export function createAgents(onComplete) {
     card.style.transform = 'translateY(10px)';
     card.innerHTML = `
       <div class="spcv-header">
-        <span class="spcv-badge">Community vote</span>
-        <span class="spcv-stage">Stage ${dp.stage} · ${dp.stageName}</span>
+        <span class="spcv-badge">Community vote ${ordLabel ? `· ${ordLabel}` : ''}</span>
+        <span class="spcv-stage">${stepLabel}</span>
       </div>
-      <div class="spcv-title">${dp.id} · ${dp.title}</div>
+      <div class="spcv-title">${dp.title}</div>
       <div class="spcv-bars">
         ${dp.options.map(o => {
           const votes = dp.communityVotes[o.id] || 0;
@@ -997,16 +1034,65 @@ export function createAgents(onComplete) {
     feedEl.innerHTML = '';
     await delay(400);
 
-    // ── Participation config & checkpoints ──
+    // ── Participation config & plan-aware checkpoint schedule ──
+    //
+    // Decision gates only fire inside the Simulation sub-stage of the
+    // plan (steps 5 & 6 in our standard 8-step template — Profiles and
+    // Simulation). Between gates the sim keeps running so the user sees
+    // posts flow past. Each triggered gate pauses the feed; once
+    // confirmed, the feed resumes until the next gate (or end).
     const cfg = getConfig();
+    const plan = getCurrentPlan();
+    const dpCtx = buildDpContext(plan);
+
     const triggeredDPs = new Set();
 
-    // Stage boundaries — which stage is active at a given progress %
+    // Which DP-ids need a gate?
+    //   - user      → plan-step ticks translated to DP ids
+    //   - community → every DP goes to the crowd
+    //   - sandbox   → none
+    const scheduledDpIds = cfg.mode === PARTICIPATION_MODES.USER
+      ? new Set(planStepsToDecisionPointIds(cfg.selectedPlanSteps || []))
+      : cfg.mode === PARTICIPATION_MODES.COMMUNITY
+        ? new Set(DECISION_POINTS.map(d => d.id))
+        : new Set();
+
+    // Stage boundaries — which stage (1–5) is active at a given pct.
+    //   1 Ontology   (0   – 20%)
+    //   2 Graph      (20  – 40%)
+    //   3 Profiles   (40  – 60%)
+    //   4 Simulation (60  – 80%)
+    //   5 Report     (80  – 100%)
     const STAGE_BOUNDARIES = [0.20, 0.40, 0.60, 0.80, 1.00];
-    const DP_TRIGGER_PCTS = {
-      'DP-1': 0.18, 'DP-2': 0.35, 'DP-3': 0.50, 'DP-4': 0.58,
-      'DP-5': 0.68, 'DP-6': 0.78, 'DP-7': 0.88,
-    };
+
+    // Anchor each DP to the END of its owning plan step, then map that
+    // plan-step end to a pct inside the Simulation sub-stage (60–95%).
+    // This spreads gates across the sim feed instead of firing them all
+    // at the 60% boundary. Plan steps without a DP are skipped.
+    const STEP_COUNT = plan?.steps?.length || 8;
+    const GATE_WINDOW_START = 0.62;
+    const GATE_WINDOW_END   = 0.95;
+    function pctForStepEnd(stepN) {
+      const t = stepN / STEP_COUNT; // 0..1 across plan
+      return GATE_WINDOW_START + t * (GATE_WINDOW_END - GATE_WINDOW_START);
+    }
+
+    // Build the ordered checkpoint queue (DP objects the user / community
+    // must see, in canonical order, each tagged with its firing pct).
+    const canonicalDps = DECISION_POINTS.filter(dp => scheduledDpIds.has(dp.id));
+    const checkpointQueue = canonicalDps.map((dp, i) => {
+      const stepN = Object.entries(PLAN_STEP_TO_DP_IDS)
+        .find(([, ids]) => ids.includes(dp.id))?.[0];
+      const stepEnd = stepN ? pctForStepEnd(Number(stepN)) : 0.75;
+      return {
+        dp,
+        pct: stepEnd,
+        ordinal: i + 1,
+        planStep: dpCtx[dp.id]?.planStep,
+      };
+    });
+    const totalCheckpoints = checkpointQueue.length;
+    let nextCheckpointIdx = 0;
 
     // Initialise stage tracker
     updateStageTracker(1);
@@ -1021,20 +1107,25 @@ export function createAgents(onComplete) {
       const stageIdx = STAGE_BOUNDARIES.findIndex(b => pct <= b);
       updateStageTracker(stageIdx >= 0 ? stageIdx + 1 : 5);
 
-      // ── Decision point checkpoints ──
-      for (const dp of DECISION_POINTS) {
+      // ── Fire any checkpoints whose trigger pct has been reached ──
+      while (
+        nextCheckpointIdx < checkpointQueue.length &&
+        pct >= checkpointQueue[nextCheckpointIdx].pct
+      ) {
+        const { dp, ordinal, planStep } = checkpointQueue[nextCheckpointIdx];
+        nextCheckpointIdx += 1;
         if (triggeredDPs.has(dp.id)) continue;
-        const trigPct = DP_TRIGGER_PCTS[dp.id];
-        if (trigPct === undefined || pct < trigPct) continue;
         triggeredDPs.add(dp.id);
 
-        if (cfg.mode === PARTICIPATION_MODES.USER && cfg.selectedDecisionPoints.includes(dp.id)) {
-          await showUserDecisionGate(dp);
+        if (cfg.mode === PARTICIPATION_MODES.USER) {
+          await showUserDecisionGate(dp, { ordinal, totalCheckpoints, planStep });
         } else if (cfg.mode === PARTICIPATION_MODES.COMMUNITY) {
-          injectCommunityVoteCard(feedEl, dp);
-          await delay(800);
+          injectCommunityVoteCard(feedEl, dp, { ordinal, totalCheckpoints, planStep });
+          await delay(600);
         }
       }
+
+      // ── Decision gates are handled above (distributed across the run) ──
 
       const metricIdx = Math.min(Math.floor((i / simulationPosts.length) * metricsTimeline.length), metricsTimeline.length - 1);
       const m = metricsTimeline[metricIdx];
@@ -1088,6 +1179,21 @@ export function createAgents(onComplete) {
       const speed = parseInt(speedSlider.value) || 5;
       const pauseMs = Math.round(3200 / speed);
       await delay(pauseMs);
+    }
+
+    // Flush any checkpoints whose pct slipped past the final iteration
+    // (defensive — normally the in-loop trigger covers everything).
+    while (nextCheckpointIdx < checkpointQueue.length) {
+      const { dp, ordinal, planStep } = checkpointQueue[nextCheckpointIdx];
+      nextCheckpointIdx += 1;
+      if (triggeredDPs.has(dp.id)) continue;
+      triggeredDPs.add(dp.id);
+      if (cfg.mode === PARTICIPATION_MODES.USER) {
+        await showUserDecisionGate(dp, { ordinal, totalCheckpoints, planStep });
+      } else if (cfg.mode === PARTICIPATION_MODES.COMMUNITY) {
+        injectCommunityVoteCard(feedEl, dp, { ordinal, totalCheckpoints, planStep });
+        await delay(600);
+      }
     }
 
     roundEl.textContent = '120';

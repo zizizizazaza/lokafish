@@ -21,9 +21,9 @@ import {
   setCommunityAsReference,
 } from '../lib/participation_state.js';
 
-export function createParticipationMode({ onChange } = {}) {
+export function createParticipationMode({ onChange, showPicker = true } = {}) {
   const el = document.createElement('div');
-  el.className = 'participation';
+  el.className = 'participation' + (showPicker ? '' : ' participation--compact');
 
   el.innerHTML = `
     <div class="participation__header">
@@ -66,6 +66,12 @@ export function createParticipationMode({ onChange } = {}) {
   const dpListEl  = el.querySelector('#dp-list');
   const refInput  = el.querySelector('#community-ref');
 
+  // Hide the DP picker when the host (e.g. plan screen) takes over the
+  // selection UI itself.
+  if (!showPicker && pickerEl) {
+    pickerEl.remove();
+  }
+
   // ---------- Build mode cards once ----------
   const cardEls = {};
   Object.values(MODE_META).forEach(meta => {
@@ -101,6 +107,7 @@ export function createParticipationMode({ onChange } = {}) {
 
   // ---------- Render DP list ----------
   function renderPicker(cfg) {
+    if (!showPicker || !pickerEl) return;
     const isUser = cfg.mode === PARTICIPATION_MODES.USER;
     pickerEl.classList.toggle('open', isUser);
     if (!isUser) return;
@@ -137,28 +144,30 @@ export function createParticipationMode({ onChange } = {}) {
   }
 
   // ---------- Picker action buttons ----------
-  pickerEl.querySelector('[data-action="pick-defaults"]').addEventListener('click', () => {
-    const defaults = DECISION_POINTS.filter(d => d.selectableByDefault).map(d => d.id);
-    const cfg = setSelectedDecisionPoints(defaults);
-    renderPicker(cfg);
-    onChange?.(cfg);
-  });
-  pickerEl.querySelector('[data-action="pick-all"]').addEventListener('click', () => {
-    const all = DECISION_POINTS.map(d => d.id);
-    const cfg = setSelectedDecisionPoints(all);
-    renderPicker(cfg);
-    onChange?.(cfg);
-  });
-  pickerEl.querySelector('[data-action="pick-none"]').addEventListener('click', () => {
-    const cfg = setSelectedDecisionPoints([]);
-    renderPicker(cfg);
-    onChange?.(cfg);
-  });
+  if (showPicker && pickerEl) {
+    pickerEl.querySelector('[data-action="pick-defaults"]').addEventListener('click', () => {
+      const defaults = DECISION_POINTS.filter(d => d.selectableByDefault).map(d => d.id);
+      const cfg = setSelectedDecisionPoints(defaults);
+      renderPicker(cfg);
+      onChange?.(cfg);
+    });
+    pickerEl.querySelector('[data-action="pick-all"]').addEventListener('click', () => {
+      const all = DECISION_POINTS.map(d => d.id);
+      const cfg = setSelectedDecisionPoints(all);
+      renderPicker(cfg);
+      onChange?.(cfg);
+    });
+    pickerEl.querySelector('[data-action="pick-none"]').addEventListener('click', () => {
+      const cfg = setSelectedDecisionPoints([]);
+      renderPicker(cfg);
+      onChange?.(cfg);
+    });
 
-  refInput.addEventListener('change', () => {
-    const cfg = setCommunityAsReference(refInput.checked);
-    onChange?.(cfg);
-  });
+    refInput.addEventListener('change', () => {
+      const cfg = setCommunityAsReference(refInput.checked);
+      onChange?.(cfg);
+    });
+  }
 
   // ---------- Initial render ----------
   renderAll(getConfig());

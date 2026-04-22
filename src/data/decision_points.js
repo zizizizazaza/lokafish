@@ -197,6 +197,33 @@ export function getDefaultSelectedIds() {
   return DECISION_POINTS.filter(dp => dp.selectableByDefault).map(dp => dp.id);
 }
 
+// Mapping from plan-step number (as shown on the Plan screen) → the decision
+// points that conceptually belong to that step. Used to translate the
+// user's "I want to own plan step N" tick into the set of gates that fire
+// inside the Simulation phase.
+export const PLAN_STEP_TO_DP_IDS = {
+  1: [],                    // stakeholder_expansion — no gate
+  2: ['DP-1'],              // ontology_generation
+  3: ['DP-2'],              // graph_construction
+  4: [],                    // entity_extraction — no gate
+  5: ['DP-3', 'DP-4'],      // profile_generation
+  6: ['DP-5', 'DP-6'],      // simulation_run
+  7: [],                    // chart_aggregation — no gate
+  8: ['DP-7'],              // report_generation
+};
+
+/**
+ * Flatten the user's selected plan-step numbers into DP ids, preserving
+ * the DECISION_POINTS canonical order.
+ */
+export function planStepsToDecisionPointIds(planStepNumbers) {
+  const want = new Set();
+  for (const n of planStepNumbers || []) {
+    for (const id of PLAN_STEP_TO_DP_IDS[n] || []) want.add(id);
+  }
+  return DECISION_POINTS.filter(dp => want.has(dp.id)).map(dp => dp.id);
+}
+
 export function computeCommunityLeader(dp) {
   const entries = Object.entries(dp.communityVotes);
   if (!entries.length) return null;

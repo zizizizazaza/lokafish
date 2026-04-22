@@ -3,6 +3,7 @@
 import './style.css';
 import { createLanding } from './screens/landing.js';
 import { createInput } from './screens/input.js';
+import { createPlan } from './screens/plan.js';
 import { createAgents } from './screens/agents.js';
 import { createAnalytics } from './screens/analytics.js';
 import { createReport } from './screens/report.js';
@@ -23,11 +24,13 @@ navbar.innerHTML = `
     <div class="navbar__step-line"></div>
     <button class="navbar__step" data-screen="1"><span class="navbar__step-dot"></span> Scenario</button>
     <div class="navbar__step-line"></div>
-    <button class="navbar__step" data-screen="2"><span class="navbar__step-dot"></span> Simulation</button>
+    <button class="navbar__step" data-screen="2"><span class="navbar__step-dot"></span> Plan</button>
     <div class="navbar__step-line"></div>
-    <button class="navbar__step" data-screen="3"><span class="navbar__step-dot"></span> Analytics</button>
+    <button class="navbar__step" data-screen="3"><span class="navbar__step-dot"></span> Simulation</button>
     <div class="navbar__step-line"></div>
-    <button class="navbar__step" data-screen="4"><span class="navbar__step-dot"></span> Report</button>
+    <button class="navbar__step" data-screen="4"><span class="navbar__step-dot"></span> Analytics</button>
+    <div class="navbar__step-line"></div>
+    <button class="navbar__step" data-screen="5"><span class="navbar__step-dot"></span> Report</button>
   </div>
   <div class="navbar__actions">
     <button class="btn btn--ghost btn--sm" style="font-family: var(--font-mono); font-size: 11px;">v1.0</button>
@@ -74,12 +77,19 @@ function goToScreen(index) {
 
 function init() {
   const landing   = createLanding(() => goToScreen(1));
-  const input     = createInput(() => goToScreen(2));
-  const agents    = createAgents(() => goToScreen(3));
-  const analytics = createAnalytics(() => goToScreen(4));
+  const input     = createInput((scenario) => {
+    if (plan._setScenario) plan._setScenario(scenario);
+    goToScreen(2);
+  });
+  const plan      = createPlan({
+    onSubmit: () => goToScreen(3),
+    onBack:   () => goToScreen(1),
+  });
+  const agents    = createAgents(() => goToScreen(4));
+  const analytics = createAnalytics(() => goToScreen(5));
   const report    = createReport();
 
-  screens.push(landing, input, agents, analytics, report);
+  screens.push(landing, input, plan, agents, analytics, report);
 
   setTimeout(() => {
     const restartBtn = report.querySelector('#btn-restart');
@@ -103,22 +113,22 @@ function init() {
   window.addEventListener('loka:navigate-to-report', (e) => {
     const projectId = e.detail && e.detail.projectId;
     loadProjectIntoAllScreens(projectId);
-    // Start at the agents screen (index 2) — the user walks through
+    // Start at the agents screen (index 3) — the user walks through
     // agents → analytics → report.
-    goToScreen(2);
+    goToScreen(3);
   });
 
   // If the page loads with #agents?project=xxx / #analytics?project=xxx /
   // #report?project=xxx already in the URL, hydrate and jump.
   if (window.location.hash) {
-    const hashScreens = { '#agents': 2, '#analytics': 3, '#report': 4 };
+    const hashScreens = { '#agents': 3, '#analytics': 4, '#report': 5 };
     const screenKey = Object.keys(hashScreens).find(k => window.location.hash.startsWith(k));
     const m = window.location.hash.match(/project=([^&]+)/);
     if (m && m[1]) {
       const pid = decodeURIComponent(m[1]);
       setTimeout(() => {
         loadProjectIntoAllScreens(pid);
-        goToScreen(hashScreens[screenKey] ?? 4);
+        goToScreen(hashScreens[screenKey] ?? 5);
       }, 150);
     }
   }

@@ -12,6 +12,7 @@ const STORAGE_KEY = 'loka:participation:v1';
 const DEFAULT_CONFIG = {
   mode: PARTICIPATION_MODES.SANDBOX,
   selectedDecisionPoints: [],
+  selectedPlanSteps: [2, 5, 6, 8], // Plan-step numbers the user wants to own in User mode.
   communityAsReference: false,  // User mode — also show community votes for reference
 };
 
@@ -71,6 +72,44 @@ export function setCommunityAsReference(flag) {
   cfg.communityAsReference = !!flag;
   write(cfg);
   return cfg;
+}
+
+export function togglePlanStep(stepNumber) {
+  const cfg = read();
+  const set = new Set(cfg.selectedPlanSteps || []);
+  if (set.has(stepNumber)) set.delete(stepNumber);
+  else set.add(stepNumber);
+  cfg.selectedPlanSteps = [...set].sort((a, b) => a - b);
+  write(cfg);
+  return cfg;
+}
+
+export function setSelectedPlanSteps(stepNumbers) {
+  const cfg = read();
+  cfg.selectedPlanSteps = [...stepNumbers].sort((a, b) => a - b);
+  write(cfg);
+  return cfg;
+}
+
+// ── Current plan persistence ─────────────────────────────────────────────
+// Saved by plan.js once a plan is generated so downstream screens
+// (agents.js etc.) can read the 8-step breakdown without re-generating.
+const PLAN_STORAGE_KEY = 'loka:currentPlan:v1';
+
+export function setCurrentPlan(plan) {
+  try {
+    localStorage.setItem(PLAN_STORAGE_KEY, JSON.stringify(plan));
+  } catch { /* ignore */ }
+  return plan;
+}
+
+export function getCurrentPlan() {
+  try {
+    const raw = localStorage.getItem(PLAN_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
 }
 
 export function resetConfig() {

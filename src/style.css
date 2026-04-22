@@ -4349,6 +4349,14 @@ button { font-family: var(--font-sans); cursor: pointer; border: none; outline: 
   flex-direction: column;
   gap: 4px;
 }
+.sdg-voices__intro {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: rgba(255,255,255,0.4);
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
 .sdg-voice {
   display: flex;
   align-items: baseline;
@@ -4796,3 +4804,601 @@ button { font-family: var(--font-sans); cursor: pointer; border: none; outline: 
   font-weight: 700;
 }
 
+
+/* ═══════════════════════════════════════════════════════════════
+   PLAN SCREEN — Step 2 of 2
+   ═══════════════════════════════════════════════════════════════ */
+
+.plan-screen {
+  padding: 0;
+  min-height: 100vh;
+}
+.plan-screen__container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 80px 40px 120px;
+}
+.plan-screen__main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.plan-screen__heading-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 2px;
+}
+.plan-screen__heading {
+  font-size: clamp(28px, 3.6vw, 40px);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+  color: #16141A;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+.plan-screen__back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition: border-color 120ms, color 120ms, background 120ms;
+  flex-shrink: 0;
+}
+.plan-screen__back-btn:hover {
+  color: var(--blue);
+  border-color: rgba(35,131,226,0.35);
+  background: var(--blue-dim);
+}
+
+/* Meta line: mode chip · nodes · minutes · agents · rounds */
+.plan-screen__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  margin-bottom: 10px;
+}
+.plan-meta__dot { color: var(--text-muted); user-select: none; }
+.plan-meta__chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: var(--radius-full);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+.plan-meta__chip--sandbox   { background: var(--bg-tertiary); color: var(--text-secondary); }
+.plan-meta__chip--community { background: var(--orange-dim);  color: var(--orange); border-color: rgba(217,115,13,0.2); }
+.plan-meta__chip--user      { background: var(--blue-dim);    color: var(--blue);   border-color: rgba(35,131,226,0.2); }
+
+/* Generating animation */
+.plan-gen {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 28px 22px;
+  border: 1px dashed rgba(35,131,226,0.3);
+  border-radius: var(--radius-lg);
+  background: var(--blue-dim);
+  margin: 12px 0 8px;
+}
+.plan-gen__pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--blue);
+  box-shadow: 0 0 0 0 rgba(35,131,226,0.5);
+  animation: plan-gen-pulse 1.2s ease-out infinite;
+}
+@keyframes plan-gen-pulse {
+  0%   { box-shadow: 0 0 0 0   rgba(35,131,226,0.5); }
+  70%  { box-shadow: 0 0 0 14px rgba(35,131,226,0);   }
+  100% { box-shadow: 0 0 0 0   rgba(35,131,226,0);   }
+}
+.plan-gen__text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--blue);
+  font-family: var(--font-mono);
+  letter-spacing: -0.01em;
+}
+.plan-gen__dots span {
+  opacity: 0;
+  animation: plan-gen-dot 1.4s infinite;
+}
+.plan-gen__dots span:nth-child(1) { animation-delay: 0s; }
+.plan-gen__dots span:nth-child(2) { animation-delay: 0.2s; }
+.plan-gen__dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes plan-gen-dot {
+  0%, 20%   { opacity: 0; }
+  50%       { opacity: 1; }
+  80%, 100% { opacity: 0; }
+}
+
+/* Section label spacing in plan screen */
+.plan-screen__section-label { margin-top: 20px; }
+
+/* Plan steps list */
+.plan-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.plan-step {
+  display: grid;
+  grid-template-columns: 36px 1fr auto;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 16px 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  transition: border-color 160ms, box-shadow 160ms, transform 160ms;
+  opacity: 0;
+  transform: translateY(4px);
+  animation: plan-step-in 360ms var(--ease-out) forwards;
+}
+@keyframes plan-step-in {
+  to { opacity: 1; transform: translateY(0); }
+}
+.plan-step:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+.plan-step__num {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--blue-dim);
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  margin-top: 2px;
+}
+.plan-step__body { min-width: 0; }
+.plan-step__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  margin-bottom: 6px;
+}
+.plan-step__tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.plan-step__tool-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+.plan-step__tool-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--purple);
+  background: var(--purple-dim);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+.plan-step__desc {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+.plan-step__io-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.plan-step__io {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+.plan-step__io--in { }
+.plan-step__io--out {
+  background: var(--green-dim);
+  color: var(--green);
+  border-color: rgba(15,123,108,0.2);
+}
+.plan-step__arrow { color: var(--text-muted); font-weight: 600; }
+.plan-step__time {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  align-self: flex-start;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+/* Run actions */
+.plan-screen__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 8px;
+}
+.input-screen__actions-hint {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  letter-spacing: -0.01em;
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+  .plan-screen__container { padding: 60px 20px 100px; }
+  .plan-screen__heading-row { flex-direction: column; align-items: flex-start; }
+  .plan-step { grid-template-columns: 28px 1fr; }
+  .plan-step__time { grid-column: 2; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PLAN SCREEN — TWO-COLUMN LAYOUT (v2)
+   Overrides the earlier single-column plan styles where needed.
+   ═══════════════════════════════════════════════════════════════ */
+
+.plan-screen__container {
+  max-width: 1200px;
+}
+
+.plan-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 28px;
+  align-items: start;
+  margin-top: 8px;
+}
+.plan-layout__left,
+.plan-layout__right {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.plan-layout__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.plan-layout__label { margin-top: 0 !important; }
+.plan-layout__actions {
+  display: flex;
+  gap: 4px;
+}
+
+/* Right column: make mode cards stack vertically so they fit in 340px */
+.plan-layout__right .participation {
+  margin: 0;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  position: sticky;
+  top: 80px;
+}
+.plan-layout__right .participation__header { display: none; }
+.plan-layout__right .participation__modes {
+  grid-template-columns: 1fr;
+  margin-bottom: 0;
+}
+.plan-layout__right .participation-mode-card {
+  padding: 14px 14px;
+}
+
+/* Right-column footer: preview + summary */
+.plan-layout__right .participation__footer {
+  margin-top: 10px;
+  padding: 10px 2px 0;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.plan-layout__right .participation__footer-hint {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+/* Plan step — add leading-cell variant with checkbox */
+.plan-step__lead {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+  cursor: default;
+  position: relative;
+}
+.plan-step--selectable .plan-step__lead {
+  cursor: pointer;
+}
+.plan-step__check {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+.plan-step__num--interactive {
+  border: 1.5px solid rgba(35,131,226,0.25);
+  background: #fff;
+  color: var(--text-secondary);
+  transition: background 140ms, border-color 140ms, color 140ms, transform 140ms;
+}
+.plan-step--selectable:hover .plan-step__num--interactive {
+  border-color: rgba(35,131,226,0.55);
+  color: var(--blue);
+}
+.plan-step--active .plan-step__num--interactive {
+  background: var(--blue);
+  color: #fff;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(35,131,226,0.15);
+}
+
+/* Whole-card hover when selectable */
+.plan-step--selectable {
+  cursor: pointer;
+  user-select: none;
+}
+.plan-step--selectable:hover {
+  border-color: rgba(35,131,226,0.35);
+  background: #fafcff;
+}
+.plan-step--active {
+  border-color: rgba(35,131,226,0.55);
+  background: #f5faff;
+  box-shadow: 0 0 0 1px rgba(35,131,226,0.08) inset;
+}
+
+/* Community mode — subtle indigo tint */
+.plan-step--community {
+  background: rgba(217,115,13,0.02);
+  border-color: rgba(217,115,13,0.18);
+}
+
+/* Title row inside step — title + mode badge */
+.plan-step__title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.plan-step__title-row .plan-step__title { margin-bottom: 0; }
+
+.plan-step__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+}
+.plan-step__badge--user {
+  background: var(--blue);
+  color: #fff;
+}
+.plan-step__badge--auto {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+.plan-step__badge--community {
+  background: var(--orange-dim);
+  color: var(--orange);
+  border: 1px solid rgba(217,115,13,0.22);
+}
+
+/* Run block — ensure it stays full width below the layout */
+.plan-run {
+  margin-top: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Mobile: collapse to single column, release sticky */
+@media (max-width: 960px) {
+  .plan-layout { grid-template-columns: 1fr; gap: 20px; }
+  .plan-layout__right .participation { position: static; }
+}
+@media (max-width: 768px) {
+  .plan-screen__container { padding: 60px 20px 100px; }
+  .plan-step__title-row { flex-direction: column; gap: 4px; }
+}
+
+/* ─── Right-column mode cards: compact horizontal rows ─── */
+.plan-layout__right .participation__modes {
+  grid-template-columns: 1fr !important; /* override the global 3-col !important */
+  gap: 6px;
+}
+.plan-layout__right .participation-mode-card {
+  display: grid;
+  grid-template-columns: 28px 1fr 16px;
+  grid-template-rows: auto auto;
+  column-gap: 12px;
+  row-gap: 2px;
+  align-items: center;
+  padding: 12px 14px;
+}
+.plan-layout__right .participation-mode-card__top {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  margin: 0;
+  justify-content: center;
+  align-self: center;
+}
+.plan-layout__right .participation-mode-card__top .participation-mode-card__check {
+  display: none; /* Check icon moves to its own column (see below) */
+}
+.plan-layout__right .participation-mode-card__icon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+}
+.plan-layout__right .participation-mode-card.active .participation-mode-card__icon {
+  background: #fff;
+}
+
+.plan-layout__right .participation-mode-card__title {
+  grid-column: 2;
+  grid-row: 1;
+  font-size: 13.5px;
+}
+.plan-layout__right .participation-mode-card__desc {
+  grid-column: 2;
+  grid-row: 2;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  margin-bottom: 0;
+}
+
+/* Subtitle is redundant in the compact layout — use desc instead */
+.plan-layout__right .participation-mode-card__subtitle {
+  display: none;
+}
+
+/* Active check indicator on the right */
+.plan-layout__right .participation-mode-card::after {
+  content: '';
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  background: #fff;
+  transition: background 140ms, border-color 140ms, box-shadow 140ms;
+}
+.plan-layout__right .participation-mode-card.active::after {
+  background: var(--blue);
+  border-color: var(--blue);
+  box-shadow: inset 0 0 0 3px #fff;
+}
+
+/* ─── Plan step: inline toggle switch (User mode) ─── */
+.plan-step__switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  flex-shrink: 0;
+}
+.plan-step__switch-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.plan-step__switch-track {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--border-strong);
+  transition: background 160ms ease;
+  flex-shrink: 0;
+}
+.plan-step__switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  transition: transform 180ms cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+.plan-step__switch-input:checked + .plan-step__switch-track {
+  background: var(--blue);
+}
+.plan-step__switch-input:checked + .plan-step__switch-track .plan-step__switch-knob {
+  transform: translateX(14px);
+}
+.plan-step__switch:hover .plan-step__switch-track {
+  background: #9B9A97;
+}
+.plan-step__switch:hover .plan-step__switch-input:checked + .plan-step__switch-track {
+  background: #1A6FC4;
+}
+.plan-step__switch-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  transition: color 160ms ease;
+  white-space: nowrap;
+}
+.plan-step--active .plan-step__switch-label {
+  color: var(--blue);
+}
+
+/* Focus ring for keyboard users */
+.plan-step__switch-input:focus-visible + .plan-step__switch-track {
+  box-shadow: 0 0 0 3px rgba(35,131,226,0.3);
+}
+
+/* ─── Plan screen: Run Mode — original card style, just narrower ─── */
+.plan-run .input-screen__mode-row {
+  max-width: 520px;
+}

@@ -56,3 +56,6 @@ secrets/
 
 # OS
 Thumbs.db
+
+# Local agent workspace
+.claude/
