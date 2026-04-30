@@ -1,572 +1,480 @@
-// Landing — Geometric hero background, proper SVG logos, professional content
+// Landing — Lokafish Home v3 (editorial b&w + particle globe + ticker + pipeline)
+//
+// Self-contained module that returns the landing root <div>. Three.js is loaded
+// from a CDN <script> tag in index.html, so we read it from `window.THREE`.
+//
+// Exit hook: the legacy `onStart` callback (passed by main.js) is wired to all
+// three CTAs (hero, end CTA, nav). Click → goToScreen(1) → Scenario.
 
-import { animateCounter } from '../utils/animation.js';
+const FONT_OPTIONS = [
+  { id: 'familjen',     name: 'Familjen Grotesk · nordic',           family: "'Familjen Grotesk', system-ui, sans-serif", weight: 700, style: 'normal', tracking: '-0.035em' },
+  { id: 'inter-tight',  name: 'Inter Tight · baseline',              family: "'Inter Tight', system-ui, sans-serif",      weight: 800, style: 'normal', tracking: '-0.04em'  },
+];
 
-// SVG line icons
-const ICONS = {
-  database: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>`,
-  brain: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2A5.5 5.5 0 0 0 4 7.5c0 1.58.7 3 1.8 4C4.7 12.5 4 14 4 15.5A5.5 5.5 0 0 0 9.5 21h0"/><path d="M14.5 2A5.5 5.5 0 0 1 20 7.5c0 1.58-.7 3-1.8 4 1.1 1 1.8 2.5 1.8 4a5.5 5.5 0 0 1-5.5 5.5h0"/><path d="M12 2v19"/></svg>`,
-  chart: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>`,
-  search: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>`,
-  globe: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
-  layers: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>`,
-  zap: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
-  file: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`,
-  shield: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`,
-  cpu: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>`,
-  activity: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
-  target: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>`,
+// Event organizers, sports federations, governments and concert promoters —
+// the kinds of authorities whose decisions Loka can simulate the impact of
+// (e.g. Taylor Swift's Eras Tour x Singapore, FIFA World Cup, Olympics).
+const TICKER_ICONS = {
+  FIFA:                    `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18M6 6l12 12M18 6L6 18"/></svg>`,
+  'Formula 1':             `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 17h7l4-4h7M3 17l3-3h6"/><circle cx="6" cy="19" r="1.4" fill="currentColor"/><circle cx="18" cy="19" r="1.4" fill="currentColor"/></svg>`,
+  IOC:                     `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6" cy="10" r="3"/><circle cx="12" cy="10" r="3"/><circle cx="18" cy="10" r="3"/><circle cx="9" cy="15" r="3"/><circle cx="15" cy="15" r="3"/></svg>`,
+  UEFA:                    `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M5 8l7 4 7-4M5 16l7-4 7 4"/></svg>`,
+  NBA:                     `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M3 12c3 0 6 3 9 3s6-3 9-3M12 3c0 3 3 6 3 9s-3 6-3 9M12 3c0 3-3 6-3 9s3 6 3 9"/></svg>`,
+  'Live Nation':           `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 18V6l11 6-11 6z"/><path d="M4 5v14"/></svg>`,
+  AEG:                     `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 19L12 4l8 15"/><path d="M7 14h10"/></svg>`,
+  Ticketmaster:            `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4V8z"/><path d="M11 7v10"/></svg>`,
+  'Red Bull':              `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 13c0-4 3-7 7-7s7 3 7 7-3 6-7 6-7-2-7-6z"/><path d="M9 11l3 5 3-5"/></svg>`,
+  'Singapore Tourism Board': `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 20c2-6 6-9 8-9s6 3 8 9"/><circle cx="12" cy="6" r="2.5"/><path d="M4 20h16"/></svg>`,
+  'Monetary Authority of Singapore': `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 10l9-6 9 6"/><path d="M5 10v9M19 10v9M9 10v9M15 10v9M3 19h18"/></svg>`,
+  'Marina Bay Sands':      `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 18V8M12 18V6M19 18V8"/><path d="M3 18h18"/><path d="M3 8c4-1 14-1 18 0"/></svg>`,
+  Coachella:               `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 19l9-14 9 14"/><path d="M7 19v-4M17 19v-4"/></svg>`,
+  Glastonbury:             `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 20l8-12 8 12"/><path d="M9 20v-5h6v5"/></svg>`,
+  'Universal Music':       `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M9 8v6a2 2 0 0 0 4 0V8M13 8v6a2 2 0 0 0 4 0V8"/></svg>`,
+  'NFL':                   `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><ellipse cx="12" cy="12" rx="9" ry="5" transform="rotate(-20 12 12)"/><path d="M9 11l6 2M10 9l4 6"/></svg>`,
+  'Olympic Games':         `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 7l7-4 7 4-7 4-7-4z"/><path d="M5 7v6l7 4 7-4V7"/></svg>`,
+  'World Expo':            `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M3 12c3-3 15-3 18 0M3 12c3 3 15 3 18 0M12 3v18"/></svg>`,
 };
 
-// Real recognizable SVG logos (simplified but identifiable)
-const LOGOS = {
-  ethereum: `<svg width="24" height="24" viewBox="0 0 256 417"><path fill="#343434" d="M127.961 0l-2.795 9.5v275.668l2.795 2.79 127.962-75.638z"/><path fill="#8C8C8C" d="M127.962 0L0 212.32l127.962 75.639V154.158z"/><path fill="#3C3C3B" d="M127.961 312.187l-1.575 1.92V414.45l1.575 4.6L256 236.587z"/><path fill="#8C8C8C" d="M127.962 419.05V312.187L0 236.587z"/></svg>`,
-  chainlink: `<svg width="24" height="24" viewBox="0 0 37.8 43.6"><path fill="#2A5ADA" d="M18.9 0l-4.5 2.6L4.5 8.3 0 10.9v21.8l4.5 2.6 10 5.7 4.5 2.6 4.5-2.6 9.9-5.7 4.5-2.6V10.9l-4.5-2.6-9.9-5.7L18.9 0zm0 8.7l8 4.6v9.2l-8 4.6-8-4.6v-9.2l8-4.6z"/></svg>`,
+const PARTNER_ICONS = {
+  data: [
+    ['Bloomberg', `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M3 15h18M9 4v16M15 4v16"/></svg>`],
+    ['Reuters', `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M3 12a9 9 0 0 0 18 0"/><path d="M12 3v18"/></svg>`],
+    ['S&amp;P Global', `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 17 L9 11 L13 14 L21 6"/><path d="M15 6h6v6"/></svg>`],
+    ['MSCI', `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M7 16V8l5 5 5-5v8"/></svg>`],
+    ['FactSet', `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="5" width="16" height="14" rx="1"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>`],
+    ['Refinitiv', `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 19V8l7-4 7 4v11"/><path d="M9 19v-6h6v6"/></svg>`],
+  ],
+  chain: [
+    ['Ethereum', `<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 2 5 12.5 12 16l7-3.5L12 2z" opacity="0.6"/><path d="M12 17 5 13.5 12 22l7-8.5L12 17z"/></svg>`],
+    ['Solana', `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M6 7l4-3h8l-4 3H6z" fill="currentColor"/><path d="M6 13l4-3h8l-4 3H6z" fill="currentColor"/><path d="M6 19l4-3h8l-4 3H6z" fill="currentColor"/></svg>`],
+    ['Chainlink', `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/></svg>`],
+    ['Polygon', `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M9 4l-5 3v6l5 3 6-3 5 3V10l-5-3-6 3z"/></svg>`],
+    ['The Graph', `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="4"/><circle cx="18" cy="18" r="3"/><path d="M12 12l4 4"/><path d="M19 4l-2 2"/></svg>`],
+    ['Avalanche', `<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 3 L21 19 H15 L13 16 H11 L9 19 H3 L12 3z"/></svg>`],
+  ],
 };
 
 export function createLanding(onStart) {
   const el = document.createElement('div');
-  el.className = 'screen landing';
+  el.className = 'screen landing-v3';
   el.id = 'screen-landing';
 
+  const dataPartners = PARTNER_ICONS.data.map(([name, svg]) => `<span class="lv3-partner">${svg}<span>${name}</span></span>`).join('');
+  const chainPartners = PARTNER_ICONS.chain.map(([name, svg]) => `<span class="lv3-partner">${svg}<span>${name}</span></span>`).join('');
+
   el.innerHTML = `
-    <section class="landing__hero">
-      <canvas class="landing__geo-bg" id="geo-bg"></canvas>
-      <div class="landing__content">
-        <div class="landing__badge anim-fade-up">
-          <span class="badge badge--blue">World Model for Economic Prediction</span>
-        </div>
-        <h1 class="landing__title anim-fade-up delay-1">Loka</h1>
-        <p class="landing__subtitle anim-fade-up delay-2">
-          Simulate real-world economic events with thousands of autonomous AI agents.<br/>
-          Generate institutional-grade quantitative predictions with confidence intervals.
-        </p>
-        <div class="landing__stats anim-fade-up delay-3">
-          <div class="landing__stat">
-            <div class="landing__stat-value" data-count="2000">0</div>
-            <div class="landing__stat-label">Agent Profiles</div>
-          </div>
-          <div class="landing__stat">
-            <div class="landing__stat-value" data-count="200">0</div>
-            <div class="landing__stat-label">Industries</div>
-          </div>
-          <div class="landing__stat">
-            <div class="landing__stat-value" data-count="47">0</div>
-            <div class="landing__stat-label">Countries</div>
-          </div>
-          <div class="landing__stat">
-            <div class="landing__stat-value" data-count="94">0</div>
-            <div class="landing__stat-label">Backtest Accuracy</div>
-          </div>
-        </div>
-        <div class="landing__cta anim-fade-up delay-4">
-          <button class="btn btn--primary btn--lg" id="btn-start-prediction">Start Prediction →</button>
-          <button class="btn btn--secondary btn--lg" id="btn-scroll-down">Learn More ↓</button>
-        </div>
-      </div>
-      <div class="landing__ticker">
-        <div class="landing__ticker-track">${generateTickerItems()}${generateTickerItems()}</div>
-      </div>
-    </section>
+    <div class="lv3-root">
+      <!-- nav -->
+      <nav class="lv3-nav">
+        <div class="lv3-nav__brand">Lokafish</div>
+        <button class="lv3-nav__cta" data-action="start">Start simulation →</button>
+      </nav>
 
-    <!-- WHAT IS LOKA -->
-    <section class="landing__section" id="section-what">
-      <div class="landing__section-inner">
-        <div class="landing__section-label">What is Loka</div>
-        <h2 class="landing__section-title">The world's first financial scenario world model</h2>
-        <p class="landing__section-desc">Input an economic event. Loka builds a digital sandbox with real demographic data, deploys thousands of AI agents, and simulates the cascading economic impacts.</p>
-        <div class="landing__features">
-          <div class="landing__feature-card">
-            <div class="landing__feature-icon" style="color: var(--blue);">${ICONS.database}</div>
-            <div class="landing__feature-title">Population Database</div>
-            <div class="landing__feature-desc">Agents generated from real demographic statistics. Each agent carries occupational background, income level, and decision logic grounded in census data.</div>
-          </div>
-          <div class="landing__feature-card">
-            <div class="landing__feature-icon" style="color: var(--purple);">${ICONS.brain}</div>
-            <div class="landing__feature-title">Swarm Intelligence</div>
-            <div class="landing__feature-desc">2,000+ agents interact in a digital sandbox, forming emergent economic behaviors through simulated social networks and behavioral contagion dynamics.</div>
-          </div>
-          <div class="landing__feature-card">
-            <div class="landing__feature-icon" style="color: var(--green);">${ICONS.chart}</div>
-            <div class="landing__feature-title">Quantitative Output</div>
-            <div class="landing__feature-desc">GDP impact, confidence intervals, industry breakdowns, sensitivity analysis with Monte Carlo simulation (n=10,000). Not text — actionable numbers.</div>
+      <!-- HERO -->
+      <section class="lv3-hero">
+        <div class="lv3-hero__left">
+          <span class="lv3-hero__badge">World model · Economic simulation</span>
+          <h1 class="lv3-hero__title">
+            <span class="lv3-hero__lead">Loka world model</span>
+            Simulate the <em>economy</em>.
+          </h1>
+          <p class="lv3-hero__sub">
+            Loka deploys <strong>thousands of autonomous AI agents</strong> against a real-world economic scenario, then returns <strong>institutional-grade quantitative simulations</strong> with confidence intervals — not text, but actionable numbers.
+          </p>
+          <div class="lv3-hero__cta-row">
+            <button class="lv3-btn lv3-btn--primary" data-action="start">Start simulation →</button>
+            <button class="lv3-btn lv3-btn--ghost" data-action="learn">Learn more ↓</button>
           </div>
         </div>
-      </div>
-    </section>
 
-    <!-- ARCHITECTURE -->
-    <section class="landing__section landing__section--alt" id="section-how">
-      <div class="landing__section-inner">
-        <div class="landing__section-label">Architecture</div>
-        <h2 class="landing__section-title">Five-layer prediction pipeline</h2>
-        <div class="landing__pipeline">
-          <div class="landing__pipe-step">
-            <div class="landing__pipe-icon" style="color: var(--blue);">${ICONS.search}</div>
-            <div class="landing__pipe-num">01</div>
-            <div class="landing__pipe-title">Scenario Parsing</div>
-            <div class="landing__pipe-desc">NL input → event, geography, time horizon, industries extraction.</div>
-          </div>
-          <div class="landing__pipe-arrow">→</div>
-          <div class="landing__pipe-step">
-            <div class="landing__pipe-icon" style="color: var(--green);">${ICONS.globe}</div>
-            <div class="landing__pipe-num">02</div>
-            <div class="landing__pipe-title">World Construction</div>
-            <div class="landing__pipe-desc">Sample 500–10,000 agents from population database, weighted by impact.</div>
-          </div>
-          <div class="landing__pipe-arrow">→</div>
-          <div class="landing__pipe-step">
-            <div class="landing__pipe-icon" style="color: var(--orange);">${ICONS.layers}</div>
-            <div class="landing__pipe-num">03</div>
-            <div class="landing__pipe-title">Agent Simulation</div>
-            <div class="landing__pipe-desc">OASIS framework. Dual-scenario parallel, 40–200 rounds with memory.</div>
-          </div>
-          <div class="landing__pipe-arrow">→</div>
-          <div class="landing__pipe-step">
-            <div class="landing__pipe-icon" style="color: var(--red);">${ICONS.zap}</div>
-            <div class="landing__pipe-num">04</div>
-            <div class="landing__pipe-title">Quantitative Engine</div>
-            <div class="landing__pipe-desc">IO models, CGE equilibrium, Monte Carlo (10K+). Agent → GDP metrics.</div>
-          </div>
-          <div class="landing__pipe-arrow">→</div>
-          <div class="landing__pipe-step">
-            <div class="landing__pipe-icon" style="color: var(--purple);">${ICONS.file}</div>
-            <div class="landing__pipe-num">05</div>
-            <div class="landing__pipe-title">Visualization</div>
-            <div class="landing__pipe-desc">Heatmaps, flows, confidence intervals, strategic recommendations.</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- TECHNICAL SPECS -->
-    <section class="landing__section" id="section-specs">
-      <div class="landing__section-inner">
-        <div class="landing__section-label">Technical Specifications</div>
-        <h2 class="landing__section-title">Enterprise-grade infrastructure</h2>
-        <div class="landing__specs-grid">
-          <div class="landing__spec-card">
-            <div class="landing__spec-icon" style="color: var(--blue);">${ICONS.cpu}</div>
-            <div class="landing__spec-label">Computation</div>
-            <div class="landing__spec-value">10,000</div>
-            <div class="landing__spec-unit">Monte Carlo iterations per run</div>
-          </div>
-          <div class="landing__spec-card">
-            <div class="landing__spec-icon" style="color: var(--green);">${ICONS.activity}</div>
-            <div class="landing__spec-label">Accuracy</div>
-            <div class="landing__spec-value">94%</div>
-            <div class="landing__spec-unit">Historical backtest accuracy</div>
-          </div>
-          <div class="landing__spec-card">
-            <div class="landing__spec-icon" style="color: var(--orange);">${ICONS.target}</div>
-            <div class="landing__spec-label">Coverage</div>
-            <div class="landing__spec-value">67</div>
-            <div class="landing__spec-unit">Economic sectors modeled</div>
-          </div>
-          <div class="landing__spec-card">
-            <div class="landing__spec-icon" style="color: var(--purple);">${ICONS.shield}</div>
-            <div class="landing__spec-label">Validation</div>
-            <div class="landing__spec-value">3</div>
-            <div class="landing__spec-unit">Complementary economic models (IO + CGE + MC)</div>
-          </div>
-          <div class="landing__spec-card">
-            <div class="landing__spec-icon" style="color: var(--red);">${ICONS.globe}</div>
-            <div class="landing__spec-label">Scale</div>
-            <div class="landing__spec-value">10K</div>
-            <div class="landing__spec-unit">Max concurrent agent population</div>
-          </div>
-          <div class="landing__spec-card">
-            <div class="landing__spec-icon" style="color: var(--blue);">${ICONS.layers}</div>
-            <div class="landing__spec-label">Framework</div>
-            <div class="landing__spec-value">OASIS</div>
-            <div class="landing__spec-unit">Multi-agent interaction platform</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- DIFFERENTIATION -->
-    <section class="landing__section landing__section--alt" id="section-diff">
-      <div class="landing__section-inner">
-        <div class="landing__section-label">Why Loka</div>
-        <h2 class="landing__section-title">Three layers beyond existing solutions</h2>
-        <div class="landing__comparison">
-          <table class="landing__table">
-            <thead><tr><th></th><th>Traditional Econometrics</th><th>MiroFish</th><th class="landing__table-highlight">Loka</th></tr></thead>
-            <tbody>
-              <tr><td class="landing__table-label">Agent Source</td><td>N/A (statistical model)</td><td>LLM-generated personas</td><td class="landing__table-highlight">Real population statistics database</td></tr>
-              <tr><td class="landing__table-label">Output</td><td>Point estimates</td><td>Text prediction report</td><td class="landing__table-highlight">Quantitative metrics + CI + visualization</td></tr>
-              <tr><td class="landing__table-label">Industry Depth</td><td>Macro only</td><td>General purpose</td><td class="landing__table-highlight">67-sector financial specialization</td></tr>
-              <tr><td class="landing__table-label">Validation</td><td>Historical regression</td><td>None</td><td class="landing__table-highlight">Historical backtesting (94% acc.)</td></tr>
-              <tr><td class="landing__table-label">Geographic</td><td>—</td><td>—</td><td class="landing__table-highlight">District-level heatmap visualization</td></tr>
-              <tr><td class="landing__table-label">Confidence</td><td>None</td><td>None</td><td class="landing__table-highlight">80/90/95% CI with Monte Carlo</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ECOSYSTEM PARTNERS -->
-    <section class="landing__section" id="section-trust">
-      <div class="landing__section-inner">
-        <div class="landing__section-label">Ecosystem</div>
-        <h2 class="landing__section-title">Data infrastructure & settlement partners</h2>
-        <p class="landing__section-desc" style="margin-bottom: 32px;">Loka integrates with leading data platforms and blockchain settlement layers for transparent, auditable prediction outputs.</p>
-        <div class="landing__partners">
-          <div class="landing__partner-row">
-            <div class="landing__partner-label">Blockchain</div>
-            <div class="landing__partner-logos">
-              ${[
-                { name: 'Ethereum', svg: `<svg viewBox="0 0 256 417" width="28" height="28"><path fill="#343434" d="M127.961 0l-2.795 9.5v275.668l2.795 2.79 127.962-75.638z"/><path fill="#8C8C8C" d="M127.962 0L0 212.32l127.962 75.639V154.158z"/><path fill="#3C3C3B" d="M127.961 312.187l-1.575 1.92V414.45l1.575 4.6L256 236.587z"/><path fill="#8C8C8C" d="M127.962 419.05V312.187L0 236.587z"/></svg>` },
-                { name: 'Solana', svg: `<svg viewBox="0 0 397 312" width="28" height="22"><linearGradient id="s1" x1="0" y1="312" x2="397" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#9945FF"/><stop offset="1" stop-color="#14F195"/></linearGradient><path fill="url(#s1)" d="M64.6 237.9c2.4-2.4 5.7-3.8 9.2-3.8h317.4c5.8 0 8.7 7 4.6 11.1l-62.7 62.7c-2.4 2.4-5.7 3.8-9.2 3.8H6.5c-5.8 0-8.7-7-4.6-11.1l62.7-62.7zM64.6 3.8C67.1 1.4 70.4 0 73.8 0h317.4c5.8 0 8.7 7 4.6 11.1l-62.7 62.7c-2.4 2.4-5.7 3.8-9.2 3.8H6.5c-5.8 0-8.7-7-4.6-11.1L64.6 3.8zM332.1 120.9c-2.4-2.4-5.7-3.8-9.2-3.8H5.5c-5.8 0-8.7 7-4.6 11.1l62.7 62.7c2.4 2.4 5.7 3.8 9.2 3.8h317.4c5.8 0 8.7-7 4.6-11.1l-62.7-62.7z"/></svg>` },
-                { name: 'Chainlink', svg: `<svg viewBox="0 0 37.8 43.6" width="22" height="26"><path fill="#2A5ADA" d="M18.9 0l-4.5 2.6L4.5 8.3 0 10.9v21.8l4.5 2.6 10 5.7 4.5 2.6 4.5-2.6 9.9-5.7 4.5-2.6V10.9l-4.5-2.6-9.9-5.7L18.9 0zm0 8.7l8 4.6v9.2l-8 4.6-8-4.6v-9.2l8-4.6z"/></svg>` },
-                { name: 'Polygon', svg: `<svg viewBox="0 0 38 33" width="26" height="22"><path fill="#8247E5" d="M29 10.2c-.7-.4-1.6-.4-2.4 0L21 13.5l-3.8 2.1-5.5 3.3c-.7.4-1.6.4-2.4 0l-4.3-2.5c-.7-.4-1.2-1.2-1.2-2.1v-5c0-.8.4-1.6 1.2-2.1l4.3-2.5c.7-.4 1.6-.4 2.4 0l4.3 2.5c.7.4 1.2 1.2 1.2 2.1v3.3l3.8-2.2V7c0-.8-.4-1.6-1.2-2.1l-8-4.7c-.7-.4-1.6-.4-2.4 0L1.2 5C.4 5.4 0 6.2 0 7v9.4c0 .8.4 1.6 1.2 2.1l8.1 4.7c.7.4 1.6.4 2.4 0l5.5-3.2 3.8-2.2 5.5-3.2c.7-.4 1.6-.4 2.4 0l4.3 2.5c.7.4 1.2 1.2 1.2 2.1v5c0 .8-.4 1.6-1.2 2.1l-4.3 2.5c-.7.4-1.6.4-2.4 0l-4.3-2.5c-.7-.4-1.2-1.2-1.2-2.1v-3.2l-3.8 2.2v3.3c0 .8.4 1.6 1.2 2.1l8.1 4.7c.7.4 1.6.4 2.4 0l8.1-4.7c.7-.4 1.2-1.2 1.2-2.1V17c0-.8-.4-1.6-1.2-2.1L29 10.2z"/></svg>` },
-                { name: 'The Graph', svg: `<svg viewBox="0 0 24 24" width="26" height="26"><circle cx="12" cy="12" r="11" fill="#6747ED"/><circle cx="12" cy="8" r="3" fill="white"/><path d="M7 17.5a5 5 0 0110 0" fill="none" stroke="white" stroke-width="2"/></svg>` },
-                { name: 'Avalanche', svg: `<svg viewBox="0 0 254 254" width="24" height="24"><circle cx="127" cy="127" r="127" fill="#E84142"/><path fill="white" d="M171.8 130.3c4.4-7.6 11.5-7.6 15.9 0l27.4 48.1c4.4 7.6.8 13.9-8 13.9h-55.1c-8.7 0-12.3-6.2-8-13.9l27.8-48.1zM118.8 48c4.4-7.6 11.4-7.6 15.8 0l5.4 9.8 12.9 23.2c3.5 7.2 3.5 15.7 0 22.9l-34.7 60c-4.4 7.2-11.9 11.6-20.2 11.6H55.8c-8.7 0-12.3-6.2-8-13.9L118.8 48z"/></svg>` },
-              ].map(p => `<div class="landing__partner-item"><div class="landing__partner-icon">${p.svg}</div><span>${p.name}</span></div>`).join('')}
-            </div>
-          </div>
-          <div class="landing__partner-row">
-            <div class="landing__partner-label">Data Providers</div>
-            <div class="landing__partner-logos">
-              ${[
-                { name: 'Bloomberg', svg: `<svg viewBox="0 0 120 24" width="80" height="16"><text x="0" y="18" font-family="Arial,sans-serif" font-weight="bold" font-size="18" fill="#1E1E1E">Bloomberg</text></svg>` },
-                { name: 'Reuters', svg: `<svg viewBox="0 0 100 24" width="64" height="16"><text x="0" y="18" font-family="Arial,sans-serif" font-weight="bold" font-size="17" fill="#FF8000">Reuters</text></svg>` },
-                { name: 'S&P Global', svg: `<svg viewBox="0 0 110 24" width="72" height="16"><text x="0" y="18" font-family="Arial,sans-serif" font-weight="bold" font-size="16" fill="#CC0000">S&amp;P Global</text></svg>` },
-                { name: 'MSCI', svg: `<svg viewBox="0 0 60 24" width="48" height="16"><text x="0" y="18" font-family="Arial,sans-serif" font-weight="bold" font-size="18" fill="#00A1DE">MSCI</text></svg>` },
-                { name: 'FactSet', svg: `<svg viewBox="0 0 80 24" width="56" height="16"><text x="0" y="18" font-family="Arial,sans-serif" font-weight="bold" font-size="17" fill="#003DA5">FactSet</text></svg>` },
-                { name: 'Refinitiv', svg: `<svg viewBox="0 0 90 24" width="60" height="16"><text x="0" y="18" font-family="Arial,sans-serif" font-weight="bold" font-size="16" fill="#001DF5">Refinitiv</text></svg>` },
-              ].map(p => `<div class="landing__partner-item"><div class="landing__partner-text-logo">${p.svg}</div></div>`).join('')}
+        <div class="lv3-hero__center">
+          <div class="lv3-aperture__rings lv3-aperture__rings--2"></div>
+          <div class="lv3-aperture__rings"></div>
+          <div class="lv3-aperture">
+            <div class="lv3-canvas-container"></div>
+            <div class="lv3-aperture-overlay">
+              <div class="lv3-aperture__brand">Loka World</div>
+              <div class="lv3-aperture__status">Swarm initializing…</div>
             </div>
           </div>
         </div>
-        <div style="text-align: center; margin-top: 48px;">
-          <button class="btn btn--primary btn--lg" id="btn-bottom-cta">Start Your First Prediction →</button>
+
+        <div class="lv3-hero__right">
+          <div class="lv3-stat-block">
+            <div class="lv3-stat-block__label">Agent profiles</div>
+            <div class="lv3-stat-block__value" data-count="2000" data-suffix="+">0+</div>
+            <div class="lv3-stat-block__sub">Sampled from real demographic statistics</div>
+          </div>
+          <div class="lv3-stat-block">
+            <div class="lv3-stat-block__label">Industries</div>
+            <div class="lv3-stat-block__value" data-count="200" data-suffix="+">0+</div>
+            <div class="lv3-stat-block__sub">Sectors covered across 67 financial categories</div>
+          </div>
+          <div class="lv3-stat-block">
+            <div class="lv3-stat-block__label">Backtest accuracy</div>
+            <div class="lv3-stat-block__value" data-count="94" data-suffix="%">0%</div>
+            <div class="lv3-stat-block__sub">Validated against historical events</div>
+          </div>
         </div>
+      </section>
+
+      <!-- ticker -->
+      <div class="lv3-ticker">
+        <div class="lv3-ticker__track"></div>
       </div>
-    </section>
+
+      <!-- PIPELINE -->
+      <section class="lv3-section lv3-section--pipe" id="how">
+        <div class="lv3-pipe-head">
+          <div class="lv3-pipe-head__left">
+            <span class="lv3-section__label">Fig. 01 · Architecture</span>
+            <h2 class="lv3-section__title">From a sentence to a structured forecast — in five stages.</h2>
+          </div>
+          <div class="lv3-pipe-head__right">
+            <p class="lv3-pipe-head__desc">Loka's MiroFish pipeline turns one line of plain English into a fully visualized, quantitative report. Each stage is grounded in a different model — language, knowledge graph, agent swarm, econometric, generative.</p>
+            <div class="lv3-pipe-head__meta">
+              <div><span class="lv3-pipe-head__metaLabel">Runtime</span><span class="lv3-pipe-head__metaVal">10–30 min</span></div>
+              <div><span class="lv3-pipe-head__metaLabel">Backtest</span><span class="lv3-pipe-head__metaVal">94.0%</span></div>
+              <div><span class="lv3-pipe-head__metaLabel">Agents</span><span class="lv3-pipe-head__metaVal">up to 10K</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="lv3-rail">
+          <svg class="lv3-rail__line" viewBox="0 0 1200 120" preserveAspectRatio="none" aria-hidden="true">
+            <defs><marker id="lv3-arrowEnd" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#000"/></marker></defs>
+            <path d="M30,60 L1170,60" stroke="#000" stroke-width="1" fill="none" marker-end="url(#lv3-arrowEnd)"/>
+          </svg>
+          <div class="lv3-rail__row">
+            <div class="lv3-stage">
+              <div class="lv3-stage__viz lv3-stage__viz--input">
+                <div class="lv3-kbd">"</div>
+                <div class="lv3-kbd-line"><span></span><span></span><span></span></div>
+                <div class="lv3-kbd-line"><span></span><span></span></div>
+                <div class="lv3-cursor"></div>
+              </div>
+              <div class="lv3-stage__num">01</div>
+              <h4 class="lv3-stage__title">Scenario parsing</h4>
+              <p class="lv3-stage__desc">One sentence → event, geography, time horizon, industries.</p>
+              <div class="lv3-stage__tag">LLM ontology</div>
+            </div>
+            <div class="lv3-stage">
+              <div class="lv3-stage__viz lv3-stage__viz--grid" data-viz="agents"></div>
+              <div class="lv3-stage__num">02</div>
+              <h4 class="lv3-stage__title">World construction</h4>
+              <p class="lv3-stage__desc">Sample 500 – 10,000 agents from real population data.</p>
+              <div class="lv3-stage__tag">Zep knowledge graph</div>
+            </div>
+            <div class="lv3-stage">
+              <div class="lv3-stage__viz lv3-stage__viz--net">
+                <svg viewBox="0 0 120 120" data-viz="net"></svg>
+              </div>
+              <div class="lv3-stage__num">03</div>
+              <h4 class="lv3-stage__title">Agent simulation</h4>
+              <p class="lv3-stage__desc">OASIS swarm. Dual-scenario, 40–200 rounds with persistent memory.</p>
+              <div class="lv3-stage__tag">Camel-OASIS</div>
+            </div>
+            <div class="lv3-stage">
+              <div class="lv3-stage__viz lv3-stage__viz--dist">
+                <svg viewBox="0 0 120 120" preserveAspectRatio="none">
+                  <path d="M0,110 C20,110 30,40 60,40 C90,40 100,110 120,110 L120,120 L0,120 Z" fill="#000" opacity="0.08"/>
+                  <path d="M0,110 C20,110 30,40 60,40 C90,40 100,110 120,110" stroke="#000" stroke-width="1.2" fill="none"/>
+                  <line x1="60" y1="20" x2="60" y2="115" stroke="#000" stroke-dasharray="2,3" stroke-width="0.8"/>
+                  <line x1="40" y1="115" x2="40" y2="95" stroke="#000" stroke-width="0.8"/>
+                  <line x1="80" y1="115" x2="80" y2="95" stroke="#000" stroke-width="0.8"/>
+                </svg>
+              </div>
+              <div class="lv3-stage__num">04</div>
+              <h4 class="lv3-stage__title">Quantitative engine</h4>
+              <p class="lv3-stage__desc">IO + CGE + Monte Carlo (10K). Behavior → GDP metrics with CI.</p>
+              <div class="lv3-stage__tag">IO + CGE + MC</div>
+            </div>
+            <div class="lv3-stage">
+              <div class="lv3-stage__viz lv3-stage__viz--report">
+                <div class="lv3-rep-bar"><span style="width:78%"></span></div>
+                <div class="lv3-rep-bar"><span style="width:54%"></span></div>
+                <div class="lv3-rep-bar"><span style="width:88%"></span></div>
+                <div class="lv3-rep-bar"><span style="width:32%"></span></div>
+                <div class="lv3-rep-tile"></div>
+              </div>
+              <div class="lv3-stage__num">05</div>
+              <h4 class="lv3-stage__title">Visualization</h4>
+              <p class="lv3-stage__desc">Heatmaps, flows, confidence intervals, recommendations — six interactive screens.</p>
+              <div class="lv3-stage__tag">ReportAgent ReAct</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- IO row -->
+        <div class="lv3-iorow" id="io">
+          <div class="lv3-iorow__col">
+            <div class="lv3-iorow__label">Input</div>
+            <div class="lv3-iorow__card lv3-iorow__card--input">
+              <div class="lv3-iorow__text">Singapore unveils a $5B tourism stimulus<br>over the next 18 months.</div>
+            </div>
+          </div>
+          <div class="lv3-iorow__arrow" aria-hidden="true">
+            <svg viewBox="0 0 80 16" preserveAspectRatio="none">
+              <path d="M0,8 L72,8" stroke="#000" stroke-width="1" fill="none"/>
+              <path d="M64,2 L72,8 L64,14" stroke="#000" stroke-width="1" fill="none"/>
+            </svg>
+          </div>
+          <div class="lv3-iorow__col">
+            <div class="lv3-iorow__label">Output</div>
+            <div class="lv3-iorow__card lv3-iorow__card--output">
+              <div class="lv3-iorow__metric">
+                <div class="lv3-iorow__metricVal">+1.42<span>%</span></div>
+                <div class="lv3-iorow__metricLabel">GDP impact, 18 mo (95% CI: 1.18 – 1.71%)</div>
+              </div>
+              <div class="lv3-iorow__sectors">
+                <div><span>Tourism</span><b>+8.4%</b></div>
+                <div><span>F&amp;B</span><b>+3.1%</b></div>
+                <div><span>Retail</span><b>+2.6%</b></div>
+                <div><span>Transport</span><b>+1.9%</b></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PARTNERS -->
+      <section class="lv3-section lv3-section--partners" id="partners">
+        <div class="lv3-partners-head">
+          <span class="lv3-section__label">Fig. 02 · Ecosystem</span>
+          <h2 class="lv3-section__title">Data infrastructure &amp; settlement partners.</h2>
+          <p class="lv3-partners-head__desc">Loka integrates with leading data platforms and blockchain settlement layers for transparent, auditable simulations.</p>
+        </div>
+        <div class="lv3-partner-block">
+          <div class="lv3-partner-block__label">Data providers</div>
+          <div class="lv3-partner-block__items">${dataPartners}</div>
+        </div>
+        <div class="lv3-partner-block">
+          <div class="lv3-partner-block__label">Blockchain &amp; settlement</div>
+          <div class="lv3-partner-block__items">${chainPartners}</div>
+        </div>
+      </section>
+
+      <!-- END CTA -->
+      <section class="lv3-end-cta">
+        <h2 class="lv3-end-cta__title">Start your<br><em>first simulation.</em></h2>
+        <p class="lv3-end-cta__sub">Run a multi-agent simulation against your own scenario, get a structured analysis report — all from a clone-and-go web UI.</p>
+        <button class="lv3-btn lv3-btn--primary" data-action="start">Start simulation →</button>
+      </section>
+
+      <footer class="lv3-foot">
+        <div>Lokafish · 2026</div>
+        <div>Self-hosted · open-source · agentic intelligence</div>
+      </footer>
+    </div>
   `;
 
-  setTimeout(() => {
-    initGeometricBackground(el.querySelector('#geo-bg'));
-    el.querySelectorAll('[data-count]').forEach(counter => {
-      const target = parseInt(counter.dataset.count);
-      if (target === 94) animateCounter(counter, target, 1800, '', '%');
-      else if (target >= 1000) animateCounter(counter, target, 2000, '', '+');
-      else animateCounter(counter, target, 1800, '', '+');
-    });
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(entry => { if (entry.isIntersecting) entry.target.classList.add('visible'); });
-    }, { threshold: 0.1 });
-    el.querySelectorAll('.landing__feature-card, .landing__pipe-step, .landing__section, .landing__spec-card').forEach(item => observer.observe(item));
-  }, 200);
-
-  el.querySelector('#btn-start-prediction').addEventListener('click', onStart);
-  el.querySelector('#btn-scroll-down').addEventListener('click', () => {
-    el.querySelector('#section-what').scrollIntoView({ behavior: 'smooth' });
+  // ─── Wire CTA buttons ───
+  el.querySelectorAll('[data-action="start"]').forEach(btn => {
+    btn.addEventListener('click', () => onStart && onStart());
   });
-  el.querySelector('#btn-bottom-cta').addEventListener('click', onStart);
+  el.querySelector('[data-action="learn"]')?.addEventListener('click', () => {
+    el.querySelector('#how')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  el.querySelectorAll('.lv3-nav__links a').forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      const t = el.querySelector(a.getAttribute('href'));
+      if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+
+  // ─── Build ticker ───
+  const tickerTrack = el.querySelector('.lv3-ticker__track');
+  const partners = Object.keys(TICKER_ICONS);
+  const partnerHtml = partners.map(p => `<span class="lv3-ticker__item">${TICKER_ICONS[p]}<span class="sym">${p.replace('&', '&amp;')}</span></span>`).join('');
+  tickerTrack.innerHTML = partnerHtml + partnerHtml;
+
+  // ─── Build agent grid (stage 2) ───
+  const grid = el.querySelector('[data-viz="agents"]');
+  if (grid) {
+    for (let i = 0; i < 100; i++) {
+      const d = document.createElement('div');
+      const r = Math.random();
+      if (r < 0.3)      d.style.opacity = '0.18';
+      else if (r < 0.55) d.style.opacity = '0.45';
+      else if (r < 0.8)  d.style.opacity = '0.75';
+      else               d.style.opacity = '1';
+      grid.appendChild(d);
+    }
+  }
+  // ─── Build network (stage 3) ───
+  const net = el.querySelector('[data-viz="net"]');
+  if (net) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const N = 14;
+    const nodes = [];
+    for (let i = 0; i < N; i++) {
+      nodes.push({ x: 12 + Math.random() * 96, y: 12 + Math.random() * 96 });
+    }
+    for (let i = 0; i < N; i++) {
+      const dists = nodes.map((n, j) => ({ j, d: (n.x - nodes[i].x) ** 2 + (n.y - nodes[i].y) ** 2 }))
+        .filter(o => o.j !== i).sort((a, b) => a.d - b.d).slice(0, 2);
+      dists.forEach(o => {
+        const l = document.createElementNS(ns, 'line');
+        l.setAttribute('x1', nodes[i].x);
+        l.setAttribute('y1', nodes[i].y);
+        l.setAttribute('x2', nodes[o.j].x);
+        l.setAttribute('y2', nodes[o.j].y);
+        net.appendChild(l);
+      });
+    }
+    nodes.forEach((n, i) => {
+      const c = document.createElementNS(ns, 'circle');
+      c.setAttribute('cx', n.x);
+      c.setAttribute('cy', n.y);
+      c.setAttribute('r', i === 5 || i === 9 ? 3 : 2);
+      net.appendChild(c);
+    });
+  }
+
+  // ─── Counter animation when visible ───
+  const obs = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        animateCount(e.target);
+        obs.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.4 });
+  el.querySelectorAll('[data-count]').forEach(node => obs.observe(node));
+
+  function animateCount(node) {
+    const target = parseInt(node.dataset.count, 10);
+    const suffix = node.dataset.suffix || '';
+    const dur = 1800;
+    const start = performance.now();
+    function frame(now) {
+      const t = Math.min(1, (now - start) / dur);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const v = Math.round(target * eased);
+      node.textContent = v.toLocaleString() + suffix;
+      if (t < 1) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // ─── Particle globe (initialised lazily once el is in DOM) ───
+  let globeStarted = false;
+  const start = () => {
+    if (globeStarted) return;
+    globeStarted = true;
+    initGlobe(el);
+  };
+  // Fire once main.js attaches the element + applies .active class.
+  el._runAnimation = start;
+  // Also fire automatically — landing is the initial screen and main.js
+  // only invokes _runAnimation on goToScreen, not on initial mount.
+  setTimeout(start, 400);
+
   return el;
 }
 
-// ============================================================
-// MiroFish-style Live Knowledge Graph Background
-// ============================================================
-function initGeometricBackground(canvas) {
-  if (!canvas) return;
-  const parent = canvas.parentElement;
-  let W = parent.offsetWidth;
-  let H = parent.offsetHeight;
-  const dpr = Math.min(devicePixelRatio, 2);
+function initGlobe(el) {
+  const container = el.querySelector('.lv3-canvas-container');
+  if (!container || !window.THREE) return;
+  const THREE = window.THREE;
 
-  function resize() {
-    W = parent.offsetWidth;
-    H = parent.offsetHeight;
-    canvas.width = W * dpr;
-    canvas.height = H * dpr;
-    canvas.style.width = W + 'px';
-    canvas.style.height = H + 'px';
-    ctx.scale(dpr, dpr);
-  }
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+  camera.position.z = 150;
 
-  const ctx = canvas.getContext('2d');
-  resize();
-  window.addEventListener('resize', () => { ctx.setTransform(1,0,0,1,0,0); resize(); rebuildGraph(); });
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setSize(container.clientWidth || 400, container.clientHeight || 400);
+  container.appendChild(renderer.domElement);
 
-  // ── Node types & colors (MiroFish palette)
-  const NODE_TYPES = [
-    { type: 'University',     color: '#4FC3F7', glow: '#0288D1' },
-    { type: 'Organization',   color: '#81C784', glow: '#388E3C' },
-    { type: 'Person',         color: '#FFB74D', glow: '#F57C00' },
-    { type: 'GovernmentAgency', color: '#CE93D8', glow: '#7B1FA2' },
-    { type: 'MediaOutlet',    color: '#F48FB1', glow: '#C2185B' },
-    { type: 'Student',        color: '#80DEEA', glow: '#00838F' },
-    { type: 'Professor',      color: '#FFCC02', glow: '#F9A825' },
-    { type: 'Alumni',         color: '#A5D6A7', glow: '#2E7D32' },
-  ];
+  const particleCount = 2200;
+  const particlesGeometry = new THREE.BufferGeometry();
+  const particlesPosition = new Float32Array(particleCount * 3);
+  const velocities = [];
 
-  let nodes = [], edges = [], pulses = [];
-  const mouse = { x: -9999, y: -9999 };
-
-  parent.addEventListener('mousemove', e => {
-    const r = parent.getBoundingClientRect();
-    mouse.x = e.clientX - r.left;
-    mouse.y = e.clientY - r.top;
-  });
-  parent.addEventListener('mouseleave', () => { mouse.x = -9999; mouse.y = -9999; });
-
-  function rebuildGraph() {
-    nodes = [];
-    edges = [];
-    pulses = [];
-
-    const NODE_COUNT = Math.floor((W * H) / 22000);
-    const count = Math.max(28, Math.min(NODE_COUNT, 55));
-
-    // Hub nodes (large, center-ish)
-    const hubCount = Math.max(4, Math.floor(count * 0.18));
-    for (let i = 0; i < count; i++) {
-      const isHub = i < hubCount;
-      const typeInfo = NODE_TYPES[Math.floor(Math.random() * NODE_TYPES.length)];
-      const margin = isHub ? 120 : 60;
-      nodes.push({
-        id: i,
-        x: margin + Math.random() * (W - margin * 2),
-        y: margin + Math.random() * (H - margin * 2),
-        vx: (Math.random() - 0.5) * 0.18,
-        vy: (Math.random() - 0.5) * 0.18,
-        r: isHub ? 10 + Math.random() * 8 : 3.5 + Math.random() * 4,
-        color: typeInfo.color,
-        glow: typeInfo.glow,
-        type: typeInfo.type,
-        isHub,
-        pulsePhase: Math.random() * Math.PI * 2,
-        labelOpacity: 0,
-      });
-    }
-
-    // Spatial force-directed initial push + edges
-    const MAX_EDGE_DIST = Math.min(W, H) * 0.32;
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const dx = nodes[i].x - nodes[j].x;
-        const dy = nodes[i].y - nodes[j].y;
-        const d = Math.sqrt(dx * dx + dy * dy);
-        if (d < MAX_EDGE_DIST) {
-          // hub nodes connect more readily
-          const threshold = (nodes[i].isHub || nodes[j].isHub) ? 0.72 : 0.42;
-          if (Math.random() < threshold * (1 - d / MAX_EDGE_DIST)) {
-            edges.push({ a: i, b: j, flow: 0, flowSpeed: 0.4 + Math.random() * 0.8 });
-          }
-        }
-      }
-    }
-
-    // Seed initial signal pulses
-    for (let k = 0; k < 12; k++) spawnPulse();
-  }
-
-  function spawnPulse() {
-    if (edges.length === 0) return;
-    const edge = edges[Math.floor(Math.random() * edges.length)];
-    const reversed = Math.random() > 0.5;
-    pulses.push({
-      edge,
-      t: Math.random(),
-      speed: 0.003 + Math.random() * 0.006,
-      reversed,
-      color: nodes[reversed ? edge.b : edge.a].color,
-      opacity: 0.9,
-      size: 2.5 + Math.random() * 2,
+  for (let i = 0; i < particleCount * 3; i += 3) {
+    const r = 100 * Math.cbrt(Math.random());
+    const theta = Math.random() * 2 * Math.PI;
+    const phi = Math.acos(2 * Math.random() - 1);
+    particlesPosition[i]     = r * Math.sin(phi) * Math.cos(theta);
+    particlesPosition[i + 1] = r * Math.sin(phi) * Math.sin(theta);
+    particlesPosition[i + 2] = r * Math.cos(phi);
+    velocities.push({
+      x: (Math.random() - 0.5) * 0.18,
+      y: (Math.random() - 0.5) * 0.18,
+      z: (Math.random() - 0.5) * 0.18,
     });
   }
+  particlesGeometry.setAttribute('position', new THREE.BufferAttribute(particlesPosition, 3));
 
-  rebuildGraph();
-
-  // ── Animation loop
-  let raf;
-  function draw() {
-    ctx.clearRect(0, 0, W, H);
-    const time = performance.now() * 0.001;
-
-    // ── 1. Draw edges
-    for (const e of edges) {
-      const na = nodes[e.a], nb = nodes[e.b];
-      const dx = nb.x - na.x, dy = nb.y - na.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-
-      // Proximity to mouse brightens the edge
-      const midX = (na.x + nb.x) / 2, midY = (na.y + nb.y) / 2;
-      const mdx = midX - mouse.x, mdy = midY - mouse.y;
-      const mDist = Math.sqrt(mdx * mdx + mdy * mdy);
-      const mouseBoost = Math.max(0, 1 - mDist / 180) * 0.4;
-
-      const baseAlpha = (na.isHub || nb.isHub) ? 0.22 : 0.10;
-      const alpha = Math.min(0.55, baseAlpha + mouseBoost);
-
-      ctx.beginPath();
-      ctx.moveTo(na.x, na.y);
-      ctx.lineTo(nb.x, nb.y);
-      ctx.strokeStyle = `rgba(100,160,255,${alpha})`;
-      ctx.lineWidth = (na.isHub || nb.isHub) ? 1.2 : 0.6;
-      ctx.stroke();
-    }
-
-    // ── 2. Draw & update signal pulses
-    for (let i = pulses.length - 1; i >= 0; i--) {
-      const p = pulses[i];
-      p.t += p.speed;
-      if (p.t > 1) {
-        pulses.splice(i, 1);
-        if (Math.random() < 0.85) spawnPulse(); // keep pool alive
-        continue;
-      }
-      const t = p.reversed ? 1 - p.t : p.t;
-      const na = nodes[p.edge.a], nb = nodes[p.edge.b];
-      const px = na.x + (nb.x - na.x) * t;
-      const py = na.y + (nb.y - na.y) * t;
-
-      // Trailing glow — convert hex to rgba for gradient
-      const hexToRgba = (hex, a) => {
-        const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
-        return `rgba(${r},${g},${b},${a})`;
-      };
-      const grad = ctx.createRadialGradient(px, py, 0, px, py, p.size * 3.5);
-      grad.addColorStop(0, hexToRgba(p.color, p.opacity));
-      grad.addColorStop(1, 'transparent');
-      ctx.beginPath();
-      ctx.arc(px, py, p.size * 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = grad;
-      ctx.fill();
-
-      // Core dot
-      ctx.beginPath();
-      ctx.arc(px, py, p.size, 0, Math.PI * 2);
-      ctx.fillStyle = p.color;
-      ctx.globalAlpha = p.opacity;
-      ctx.fill();
-      ctx.globalAlpha = 1;
-    }
-
-    // ── 3. Update node physics + draw
-    for (const n of nodes) {
-      // Mouse repulsion
-      const mdx = n.x - mouse.x, mdy = n.y - mouse.y;
-      const mDist = Math.sqrt(mdx * mdx + mdy * mdy);
-      const repelRadius = 120;
-      if (mDist < repelRadius && mDist > 0) {
-        const force = (1 - mDist / repelRadius) * 1.2;
-        n.vx += (mdx / mDist) * force;
-        n.vy += (mdy / mDist) * force;
-      }
-
-      // Gentle drift + boundary bounce
-      n.x += n.vx;
-      n.y += n.vy;
-      n.vx *= 0.985;
-      n.vy *= 0.985;
-      const pad = n.r + 24;
-      if (n.x < pad)      { n.x = pad;      n.vx = Math.abs(n.vx) * 0.7; }
-      if (n.x > W - pad)  { n.x = W - pad;  n.vx = -Math.abs(n.vx) * 0.7; }
-      if (n.y < pad)      { n.y = pad;      n.vy = Math.abs(n.vy) * 0.7; }
-      if (n.y > H - pad)  { n.y = H - pad;  n.vy = -Math.abs(n.vy) * 0.7; }
-
-      // Pulse ring (hub nodes breathe)
-      const pulse = (Math.sin(time * 1.4 + n.pulsePhase) * 0.5 + 0.5);
-
-      if (n.isHub) {
-        // Outer glow ring
-        const ringR = n.r + 6 + pulse * 8;
-        const rinGrad = ctx.createRadialGradient(n.x, n.y, n.r, n.x, n.y, ringR + 8);
-        rinGrad.addColorStop(0, n.color + '55');
-        rinGrad.addColorStop(1, 'transparent');
-        ctx.beginPath();
-        ctx.arc(n.x, n.y, ringR + 8, 0, Math.PI * 2);
-        ctx.fillStyle = rinGrad;
-        ctx.fill();
-      }
-
-      // Node glow
-      const glowR = n.r * (n.isHub ? 3.5 : 2.8);
-      const gGrad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, glowR);
-      gGrad.addColorStop(0, n.color + (n.isHub ? 'CC' : '88'));
-      gGrad.addColorStop(0.4, n.glow + '44');
-      gGrad.addColorStop(1, 'transparent');
-      ctx.beginPath();
-      ctx.arc(n.x, n.y, glowR, 0, Math.PI * 2);
-      ctx.fillStyle = gGrad;
-      ctx.fill();
-
-      // Core node
-      ctx.beginPath();
-      ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
-      ctx.fillStyle = n.color;
-      ctx.fill();
-
-      // White core highlight
-      ctx.beginPath();
-      ctx.arc(n.x - n.r * 0.28, n.y - n.r * 0.28, n.r * 0.35, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,255,255,0.35)';
-      ctx.fill();
-
-      // Label (hub nodes + mouse-nearby nodes)
-      const labelDist = Math.sqrt(mdx * mdx + mdy * mdy);
-      const wantLabel = n.isHub || labelDist < 80;
-      n.labelOpacity += wantLabel ? 0.06 : -0.04;
-      n.labelOpacity = Math.max(0, Math.min(1, n.labelOpacity));
-
-      if (n.labelOpacity > 0.01) {
-        ctx.save();
-        ctx.globalAlpha = n.labelOpacity * 0.92;
-        ctx.font = `${n.isHub ? 600 : 500} ${n.isHub ? 11 : 10}px Inter, sans-serif`;
-        ctx.fillStyle = '#E8F4FF';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
-        // Subtle pill background
-        const lbl = n.type;
-        const tw = ctx.measureText(lbl).width;
-        const lx = n.x - tw / 2 - 4, ly = n.y + n.r + 5;
-        ctx.fillStyle = 'rgba(8, 22, 55, 0.65)';
-        ctx.beginPath();
-        ctx.roundRect(lx, ly, tw + 8, 15, 4);
-        ctx.fill();
-        ctx.fillStyle = n.color;
-        ctx.fillText(lbl, n.x, ly + 2);
-        ctx.restore();
-      }
-    }
-
-    // ── 4. Occasionally spawn new pulses to keep it alive
-    if (Math.random() < 0.04 && pulses.length < 35) spawnPulse();
-
-    raf = requestAnimationFrame(draw);
-  }
-
-  draw();
-
-  // Cleanup on screen hide
-  const observer = new MutationObserver(() => {
-    if (!parent.closest('.active')) { cancelAnimationFrame(raf); observer.disconnect(); }
+  const particleMaterial = new THREE.PointsMaterial({
+    color: 0x000000, size: 1.4, transparent: true, opacity: 0.8,
   });
-  observer.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class'] });
-}
+  const particleSystem = new THREE.Points(particlesGeometry, particleMaterial);
+  scene.add(particleSystem);
 
-function generateTickerItems() {
-  const items = [
-    { symbol: 'SPX', value: '5,234.18', change: '+1.2%', up: true },
-    { symbol: 'AAPL', value: '$198.45', change: '+2.8%', up: true },
-    { symbol: 'BTC/USD', value: '$97,342', change: '+4.1%', up: true },
-    { symbol: 'SGD/USD', value: '0.7523', change: '-0.3%', up: false },
-    { symbol: 'ETH', value: '$3,891', change: '+5.2%', up: true },
-    { symbol: 'Gold', value: '$2,891', change: '+0.8%', up: true },
-    { symbol: 'GDP SG', value: '$397B', change: '+3.1%', up: true },
-    { symbol: 'Tourism', value: '$28.1B', change: '+12.4%', up: true },
-  ];
-  return items.map(item => `
-    <div class="landing__ticker-item">
-      <span>${item.symbol}</span>
-      <span style="color: var(--text-primary)">${item.value}</span>
-      <span class="${item.up ? 'up' : 'down'}">${item.change}</span>
-    </div>
-  `).join('');
+  const lineMaterial = new THREE.LineBasicMaterial({
+    color: 0x000000, transparent: true, opacity: 0.15,
+  });
+  const lineGeometry = new THREE.BufferGeometry();
+  const linePositions = [];
+  const maxDistance = 15;
+  for (let i = 0; i < particleCount; i++) {
+    for (let j = i + 1; j < particleCount; j++) {
+      const ix = i*3, iy = i*3+1, iz = i*3+2;
+      const jx = j*3, jy = j*3+1, jz = j*3+2;
+      const dx = particlesPosition[ix] - particlesPosition[jx];
+      const dy = particlesPosition[iy] - particlesPosition[jy];
+      const dz = particlesPosition[iz] - particlesPosition[jz];
+      const distSq = dx*dx + dy*dy + dz*dz;
+      if (distSq < maxDistance * maxDistance) {
+        if (Math.random() > 0.8) continue;
+        linePositions.push(
+          particlesPosition[ix], particlesPosition[iy], particlesPosition[iz],
+          particlesPosition[jx], particlesPosition[jy], particlesPosition[jz],
+        );
+      }
+    }
+  }
+  lineGeometry.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
+  const lines = new THREE.LineSegments(lineGeometry, lineMaterial);
+  scene.add(lines);
+
+  let time = 0;
+  function animate() {
+    requestAnimationFrame(animate);
+    time += 0.005;
+    particleSystem.rotation.y = time * 0.5;
+    particleSystem.rotation.x = time * 0.2;
+    lines.rotation.y = time * 0.5;
+    lines.rotation.x = time * 0.2;
+    const positions = particleSystem.geometry.attributes.position.array;
+    for (let i = 0; i < particleCount; i++) {
+      const i3 = i * 3;
+      positions[i3]     += velocities[i].x;
+      positions[i3 + 1] += velocities[i].y;
+      positions[i3 + 2] += velocities[i].z;
+      const d = positions[i3]*positions[i3] + positions[i3+1]*positions[i3+1] + positions[i3+2]*positions[i3+2];
+      if (d > 12000) {
+        velocities[i].x *= -1;
+        velocities[i].y *= -1;
+        velocities[i].z *= -1;
+      }
+    }
+    particleSystem.geometry.attributes.position.needsUpdate = true;
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  function sizeGlobe() {
+    const w = container.clientWidth, h = container.clientHeight;
+    if (!w || !h) return;
+    renderer.setSize(w, h);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', sizeGlobe);
+  // size after layout settles
+  requestAnimationFrame(sizeGlobe);
+  setTimeout(sizeGlobe, 300);
 }

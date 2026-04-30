@@ -1,792 +1,269 @@
-// Report — Two-column: academic paper (left) + AI chat (right)
-//
-// Peter-jim's visual paper template preserved for demo mode. In real
-// mode (_loadProject called with a project id), the paper is swapped to
-// the consulting-template layout with per-section role badges and
-// inline chart placeholders.
+// Report screen — Lokafish Flow design (Stage 4, light)
+// 3-column research-paper layout: TOC sidebar / serif document / chat sidebar.
 
-import { reportContent as staticReportContent } from '../data/report.js';
-import { delay } from '../utils/animation.js';
-import { fetchProjectData, adaptReportForFrontend } from '../lib/project_client.js';
-import { renderInlineChart, CHART_TITLES } from '../components/inline-charts.js';
-import { createAnalyticsSection } from './analytics.js';
-
-// Mutable so _loadProject can swap to a backend-fetched consulting report.
-let reportContent = staticReportContent;
-// Analytics payload cached from the most recent _loadProject call, used
-// to render [[chart:xxx]] inline placeholders without a second fetch.
-let cachedAnalytics = null;
-// Conversation history for the real LLM chat. Pushed/popped as the user
-// interacts; the full array is POSTed to /api/chat/stream each turn.
-const chatHistory = [];
-// The currently-loaded project id (null in demo mode) — used by the
-// Download Markdown button to build the correct URL.
-let currentProjectId = null;
-
-// Suggested questions seeding the chat; content comes from the LLM at runtime.
-const chatSuggestionQuestions = [
-  'Summarize the key findings',
-  'What are the main risks?',
-  'How does this compare to actual results?',
-  'Explain the methodology',
+const SECTIONS = [
+  { id: 'rs-abstract', toc: 'Abstract' },
+  { id: 'rs-1',        toc: '1. Introduction' },
+  { id: 'rs-2',        toc: '2. Methodology' },
+  { id: 'rs-3',        toc: '3. Findings' },
+  { id: 'rs-4',        toc: '4. Risks & limitations' },
+  { id: 'rs-5',        toc: '5. Decision log' },
+  { id: 'rs-6',        toc: '6. Closing' },
 ];
 
-// Role badge labels for consulting-template sections (real mode).
-const ROLE_LABELS = {
-  strategist: 'Strategy Partner',
-  analyst: 'Senior Analyst',
-  risk_officer: 'Chief Risk Officer',
-  finance: 'Finance Analyst',
-  policy: 'Policy Analyst',
-};
-const ROLE_COLORS = {
-  strategist: '#2383E2',
-  analyst: '#0F7B6C',
-  risk_officer: '#E03E3E',
-  finance: '#D9730D',
-  policy: '#6940A5',
-};
-
-const SYSTEM_PROMPT =
-  'You are Loka AI, an analyst embedded in the Loka research report. ' +
-  "Answer the user's questions using the REPORT CONTEXT below. " +
-  'Cite specific numbers, sections, or findings whenever possible. ' +
-  'Keep answers under 250 words unless the user asks for more detail. ' +
-  'If the report does not contain the answer, say so plainly.';
-
-// Strip HTML tags so the report context stays compact and LLM-friendly.
-function stripHtml(s) {
-  return String(s || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-// Build a compact text version of the report to use as LLM context.
-function buildReportContext() {
-  const parts = [];
-  parts.push(`TITLE: ${reportContent.title || ''}`);
-  if (reportContent.subtitle) parts.push(`SUBTITLE: ${reportContent.subtitle}`);
-  parts.push(`\nABSTRACT:\n${stripHtml(reportContent.abstract)}`);
-  parts.push(`\nSECTIONS:`);
-  for (const s of (reportContent.sections || [])) {
-    const body = stripHtml(s.body);
-    const trimmed = body.length > 600 ? body.slice(0, 600) + '…' : body;
-    parts.push(`\n[${s.num}] ${s.title}\n${trimmed}`);
-  }
-  if (reportContent.risks && reportContent.risks.length) {
-    parts.push(`\nRISK FACTORS:\n${reportContent.risks.map(r => '- ' + stripHtml(r)).join('\n')}`);
-  }
-  return parts.join('\n');
-}
-
-/**
- * Stream a chat response from /api/chat/stream and call onDelta(text)
- * for every text fragment. Returns a promise that resolves to the full
- * concatenated reply when the stream finishes.
- */
-async function streamChatApi(userMessage, { onFirstDelta, onDelta }) {
-  chatHistory.push({ role: 'user', content: userMessage });
-
-  const res = await fetch('/api/chat/stream', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      messages: chatHistory,
-      context: buildReportContext(),
-      system: SYSTEM_PROMPT,
-    }),
-  });
-  if (!res.ok || !res.body) {
-    throw new Error(`chat stream ${res.status}`);
-  }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder('utf-8');
-  let buf = '';
-  let full = '';
-  let firstDeltaSeen = false;
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-
-    let sep;
-    while ((sep = buf.indexOf('\n\n')) !== -1) {
-      const eventBlock = buf.slice(0, sep);
-      buf = buf.slice(sep + 2);
-
-      const dataLines = eventBlock
-        .split('\n')
-        .filter((l) => l.startsWith('data:'))
-        .map((l) => l.slice(5).trimStart());
-      if (!dataLines.length) continue;
-      const payload = dataLines.join('\n');
-      let parsed;
-      try {
-        parsed = JSON.parse(payload);
-      } catch {
-        continue;
-      }
-      if (parsed.error) throw new Error(parsed.error);
-      if (parsed.done) {
-        if (full) chatHistory.push({ role: 'assistant', content: full });
-        return full;
-      }
-      if (parsed.delta) {
-        if (!firstDeltaSeen) {
-          firstDeltaSeen = true;
-          onFirstDelta && onFirstDelta();
-        }
-        full += parsed.delta;
-        onDelta && onDelta(parsed.delta);
-      }
-    }
-  }
-
-  if (full) chatHistory.push({ role: 'assistant', content: full });
-  return full;
-}
+const CHAT_HEURISTICS = [
+  {
+    re: /summary|summarise|key|findings/i,
+    a: 'Five findings: (1) S$372M tourism receipts mean, σ=S$48M; (2) 8–12 week halo effect post-event; (3) Changi arrivals +20%, validated by STB; (4) hotel ADR rises 38% in central districts; (5) +0.25pp Q1 GDP contribution.',
+  },
+  {
+    re: /halo|long.?tail|after|post/i,
+    a: 'The halo emerges from social-amplified return visits and word-of-mouth among SEA tourists. Traditional I-O models miss this tail because they don\'t simulate individual agent memory or social-network propagation.',
+  },
+  {
+    re: /stress|sensitivity|robust/i,
+    a: 'Halo magnitude is most sensitive: ±25% on social propagation coefficients shifts halo from 6w to 14w. The receipts forecast (S$310–480M @ 80% CI) is robust to ±15% in agent population mix.',
+  },
+  {
+    re: /counterfactual|baseline|no.event/i,
+    a: 'The no-concert baseline uses a synthetic-control match: weighted Mar 2023 + seasonal adjustment. Uncertainty widens beyond 4w post-event because the base period\'s social-media patterns don\'t cleanly project.',
+  },
+];
 
 export function createReport() {
   const el = document.createElement('div');
-  el.className = 'screen report-screen';
+  el.className = 'screen flow-screen flow-screen--report';
   el.id = 'screen-report';
 
-  const chatSuggestions = chatSuggestionQuestions;
+  const tocHtml = SECTIONS.map(s => `<li><a href="#${s.id}">${s.toc}</a></li>`).join('');
 
   el.innerHTML = `
-    <div class="report-layout">
-      <!-- LEFT: Paper -->
-      <div class="report-paper" id="report-paper">
-        <div class="report-header anim-fade-up">
-          <div class="report-header__left">
-            <div class="report-header__logo"><span class="accent-text">Loka</span> Research</div>
-            <div class="report-header__meta">
-              Model: ${reportContent.model}<br/>
-              Engine: Loka World Model v1.0
+    <div class="report-shell">
+      <aside class="report-toc">
+        <div class="report-toc__label">In this report</div>
+        <ol class="report-toc__list" id="report-toc-list">${tocHtml}</ol>
+        <div class="report-toc__actions">
+          <button class="flow-btn flow-btn--ghost flow-btn--sm">↓ Download PDF</button>
+          <button class="flow-btn flow-btn--ghost flow-btn--sm">⌘ Cite</button>
+          <button class="flow-btn flow-btn--ghost flow-btn--sm" id="btn-restart">↻ New scenario</button>
+        </div>
+      </aside>
+
+      <article class="report-doc" id="report-doc">
+        <header class="report-doc__head">
+          <div class="report-doc__meta">
+            <span class="report-doc__class">CONFIDENTIAL · DRAFT</span>
+            <span class="report-doc__sep">·</span>
+            <span>Mar 18 2024</span>
+            <span class="report-doc__sep">·</span>
+            <span>Run #7c4-a01</span>
+          </div>
+          <h1 class="report-doc__title">Economic impact of the <em>Eras Tour</em> in Singapore — a multi-agent world simulation.</h1>
+          <div class="report-doc__byline">
+            <span>Prepared by <b>Loka Research</b> · Multi-agent swarm × quantitative economic analysis</span>
+          </div>
+          <div class="report-doc__hero-stats">
+            <div class="report-doc__hs">
+              <div class="report-doc__hs-num">S$<em>372</em>M</div>
+              <div class="report-doc__hs-lbl">Projected tourism receipts<br><span>80% CI: S$310M – S$480M</span></div>
+            </div>
+            <div class="report-doc__hs">
+              <div class="report-doc__hs-num"><em>+0.25</em>pp</div>
+              <div class="report-doc__hs-lbl">Q1 real GDP contribution<br><span>vs counterfactual baseline</span></div>
+            </div>
+            <div class="report-doc__hs">
+              <div class="report-doc__hs-num"><em>92.7</em>%</div>
+              <div class="report-doc__hs-lbl">Peak hotel occupancy<br><span>concert weekend, central districts</span></div>
             </div>
           </div>
-          <div class="report-header__right">
-            <div class="report-header__classification">${reportContent.classification}</div>
-            <div class="report-header__date">${reportContent.date}</div>
-          </div>
-        </div>
+        </header>
 
-        <div class="report-paper-title" data-reveal>
-          <h1>${reportContent.title}</h1>
-          <p class="report-paper-subtitle">${reportContent.subtitle}</p>
-          <div class="report-paper-authors">Loka World Model Engine v1.0 · Autonomous Multi-Agent Simulation</div>
-        </div>
+        <section class="report-section" id="rs-abstract">
+          <h2 class="report-section__h">Abstract</h2>
+          <p class="report-section__lead">We deploy 2,000 demographically-grounded autonomous agents in a digital twin of Singapore's economy to forecast the impact of Taylor Swift's six-night Eras Tour residency at the National Stadium (Mar 2–9, 2024). Through 120 rounds of behavioural simulation processed via Input-Output, CGE and Monte Carlo (n=10,000) frameworks, we project tourism receipts of <b>S$350M–S$450M</b> with 80% CI [S$310M, S$480M]. The forecast aligns with Maybank Research and is corroborated by STB-reported visitor arrivals (+45% YoY in Mar 2024). Accommodation (peak occupancy 92.7%) and aviation (+20% Changi arrivals) emerge as primary beneficiaries; we identify a previously undocumented halo effect of 8–12 weeks post-event.</p>
+        </section>
 
-        <div class="report-key-metrics" data-reveal>
-          <div class="report-key-metric">
-            <div class="report-key-metric__label">Tourism Receipts</div>
-            <div class="report-key-metric__value report-key-metric__value--blue">S$350–450M</div>
-            <div class="report-key-metric__sub">80% CI: [S$310M, S$480M]</div>
-          </div>
-          <div class="report-key-metric">
-            <div class="report-key-metric__label">GDP Impact</div>
-            <div class="report-key-metric__value report-key-metric__value--green">+0.25pp</div>
-            <div class="report-key-metric__sub">Q1 2024 Growth</div>
-          </div>
-          <div class="report-key-metric">
-            <div class="report-key-metric__label">Hotel Occupancy</div>
-            <div class="report-key-metric__value report-key-metric__value--purple">79.1%</div>
-            <div class="report-key-metric__sub">Peak: 92.7% (CoStar)</div>
-          </div>
-          <div class="report-key-metric">
-            <div class="report-key-metric__label">Overseas Attendees</div>
-            <div class="report-key-metric__value report-key-metric__value--orange">~70%</div>
-            <div class="report-key-metric__sub">of 300K+ total</div>
-          </div>
-        </div>
+        <section class="report-section" id="rs-1">
+          <h2 class="report-section__h"><span class="report-section__num">01</span>Introduction</h2>
+          <p>Large-scale entertainment events are a significant yet poorly understood driver of urban economic activity. Traditional econometric approaches rely on historical regression and input-output tables [Crompton, 1995] but fail to capture the emergent dynamics of crowd behaviour, social media amplification and cross-industry consumption cascading.</p>
+          <p>The advent of LLM-powered multi-agent systems [Park et al., 2023] opens a new paradigm: simulating individual-level economic decisions within a structured world model, then aggregating behaviours to produce macroeconomic projections. This paper introduces the <b>Loka World Model Engine</b>, addressing three gaps in existing approaches through a five-layer architecture that integrates real population statistics, multi-agent behavioural simulation and established quantitative economic frameworks.</p>
+          <aside class="report-callout">
+            <div class="report-callout__label">Note from the analyst</div>
+            <p>This run was executed in <b>Sandbox + Light Touch</b> mode — agents operate autonomously but pauses occur at three key checkpoints for analyst input. See decision log in §5.</p>
+          </aside>
+        </section>
 
-        <div class="report-toc" data-reveal>
-          <div class="report-toc__title">Table of Contents</div>
-          <div class="report-toc__items">
-            <a class="report-toc__item" href="#abstract">Abstract</a>
-            <a class="report-toc__item" href="#analytics"><span class="mono">§</span> Quantitative Analytics</a>
-            ${reportContent.sections.map(s => `<a class="report-toc__item" href="#section-${s.num}"><span class="mono">${s.num}</span> ${s.title}</a>`).join('')}
-            <a class="report-toc__item" href="#references">References</a>
-            <a class="report-toc__item" href="#appendix">Appendix: Risk Factors</a>
-          </div>
-        </div>
+        <section class="report-section" id="rs-2">
+          <h2 class="report-section__h"><span class="report-section__num">02</span>Methodology</h2>
+          <h3 class="report-section__h3">2.1 &nbsp; Population database &amp; agent generation</h3>
+          <p>Unlike LLM-generated fictional personas, Loka agents are sampled from a structured population database grounded in Singapore's Department of Statistics census (2023). Each profile carries: SSOC 2020 occupational classification, HES 2022/23 income distribution, consumption-expenditure patterns and residential location.</p>
+          <h3 class="report-section__h3">2.2 &nbsp; Agent architecture</h3>
+          <p>Each agent is an autonomous decision-making unit with: <i>(i)</i> a biographical memory module storing 180 days of temporal context, <i>(ii)</i> a social network graph connecting 15–50 other agents, <i>(iii)</i> a consumption decision function parameterised by income, personality and social influence, and <i>(iv)</i> an information-processing module that evaluates incoming signals against personal relevance criteria.</p>
+          <h3 class="report-section__h3">2.3 &nbsp; Simulation framework</h3>
+          <p>We employ the OASIS multi-agent interaction framework in dual-scenario parallel mode. Each run consists of 120 rounds spanning a 4-week horizon (pre-event 2w, event 6d, post-event 2w). Agents interact through simulated social networks, make consumption decisions and generate transactions that feed into the quantitative analysis layer.</p>
+        </section>
 
-        <div class="report-section" data-reveal id="abstract">
-          <div class="report-section__title">Abstract</div>
-          <div class="report-section__body report-abstract">${reportContent.abstract}</div>
-        </div>
+        <section class="report-section" id="rs-3">
+          <h2 class="report-section__h"><span class="report-section__num">03</span>Findings</h2>
+          <p>We summarise five key findings from the simulation, in order of magnitude of economic impact.</p>
 
-        <div class="report-section" data-reveal>
-          <div class="report-mini-chart">
-            <canvas id="report-mini-chart" width="620" height="120"></canvas>
-          </div>
-          <div style="text-align:center;font-size:11px;color:var(--text-muted);margin-top:4px;">
-            Figure 1: GDP Impact Projection — Baseline vs. Concert Scenario
-          </div>
-        </div>
-
-        <!-- Analytics section — previously a standalone screen, now
-             embedded into the paper so the report is the single source
-             of truth for both narrative and quantitative evidence. -->
-        <div class="report-section report-section--analytics" data-reveal id="analytics">
-          <div class="report-section__title"><span class="mono">§</span>Quantitative Analytics</div>
-          <div class="report-section__body">
-            <p style="color:var(--text-secondary);font-size:13px;margin:0 0 14px;">
-              Interactive dashboards derived from the multi-agent simulation. Click any chart element for detailed breakdowns.
-            </p>
-          </div>
-          <div id="report-analytics-mount"></div>
-        </div>
-
-        ${reportContent.sections.map(s => `
-          <div class="report-section" data-reveal id="section-${s.num}">
-            <div class="report-section__title"><span class="mono">${s.num}</span>${s.title}</div>
-            <div class="report-section__body">${s.body}</div>
-          </div>
-        `).join('')}
-
-        <div class="report-section" data-reveal id="references">
-          <div class="report-section__title">References</div>
-          <div class="report-references">
-            ${reportContent.references.map((ref, i) => `<div class="report-ref">[${i + 1}] ${ref}</div>`).join('')}
-          </div>
-        </div>
-
-        <div class="report-section" data-reveal id="appendix">
-          <div class="report-section__title">Appendix A: Risk Factors</div>
-          ${reportContent.risks.map(r => `<div class="report-risk">⚠ ${r}</div>`).join('')}
-        </div>
-
-        <div class="report-actions anim-fade-up">
-          <button class="btn btn--primary" id="btn-export-pdf">Export PDF</button>
-          <button class="btn btn--secondary">Share Report</button>
-          <button class="btn btn--secondary" id="btn-restart">New Analysis</button>
-        </div>
-
-        <div style="text-align:center;padding:32px 0 16px;">
-          <div style="width:80px;height:3px;background:linear-gradient(90deg,#2383E2,#0F7B6C,#6940A5);border-radius:2px;margin:0 auto 16px;"></div>
-          <div style="color:var(--text-muted);font-size:11px;line-height:1.8;">
-            Generated by <strong style="color:var(--text-secondary);">Loka World Model Engine v1.0</strong> · ${reportContent.date}<br/>
-            Multi-Agent Swarm Simulation × Quantitative Economic Analysis<br/>
-            © 2026 Loka. All rights reserved.
-          </div>
-        </div>
-      </div>
-
-      <!-- RIGHT: Chat -->
-      <div class="report-chat">
-        <div class="report-chat__header">
-          <div class="report-chat__header-title">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-            Ask about this report
-          </div>
-          <div class="report-chat__header-tag">AI Analyst</div>
-        </div>
-        <div class="report-chat__messages" id="report-chat-messages">
-          <div class="report-chat__msg report-chat__msg--ai">
-            <div class="report-chat__msg-avatar">LK</div>
-            <div class="report-chat__msg-content">
-              <div class="report-chat__msg-name">Loka AI</div>
-              I've analyzed the full research report. Ask me anything about the methodology, findings, risks, or strategic implications. I have access to all simulation data and can provide deeper analysis on any section.
+          <div class="report-finding">
+            <div class="report-finding__num">F1</div>
+            <div>
+              <h4 class="report-finding__h">Tourism receipts of S$350M–S$450M, concentrated in 3 sectors.</h4>
+              <p>Across 10,000 Monte Carlo iterations, projected direct tourism receipts converge on a mean of <b>S$372M</b> (σ=S$48M). Accommodation (38% share), F&amp;B (24%) and retail (19%) absorb the majority of inflows.</p>
             </div>
           </div>
-        </div>
-        <div class="report-chat__suggestions" id="report-suggestions">
-          ${chatSuggestions.map(s => `<button class="report-chat__suggestion">${s}</button>`).join('')}
-        </div>
-        <!-- Active chart-selection context. Shown when the user clicks a
-             chart data point; the chip scopes their next question to
-             that data and can be dismissed with the × button. -->
-        <div class="report-chat__context" id="report-chat-context" hidden>
-          <div class="report-chat__context-head">
-            <svg class="report-chat__context-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-            <span class="report-chat__context-label">Asking about</span>
-            <button class="report-chat__context-clear" id="report-chat-context-clear" aria-label="Clear selection">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
+
+          <div class="report-finding">
+            <div class="report-finding__num">F2</div>
+            <div>
+              <h4 class="report-finding__h">An 8–12 week halo effect previously absent in econometric models.</h4>
+              <p>Simulated agents continue to elevate consumption 14.4% above baseline well after the concert weekend, driven by social-media-amplified return visits and word-of-mouth among SEA tourists.</p>
+            </div>
           </div>
-          <div class="report-chat__context-chart" id="report-chat-context-chart"></div>
-          <div class="report-chat__context-value" id="report-chat-context-value"></div>
-          <div class="report-chat__context-summary" id="report-chat-context-summary"></div>
+
+          <div class="report-finding">
+            <div class="report-finding__num">F3</div>
+            <div>
+              <h4 class="report-finding__h">Changi arrivals projected +20%, validated by STB data.</h4>
+              <p>Inbound arrivals during Mar 2024 are projected at +20% week-on-week vs Feb baseline, peaking on concert eve. Subsequently confirmed by STB monthly statistics: 1.48M international visitors (+45% YoY).</p>
+            </div>
+          </div>
+
+          <div class="report-finding">
+            <div class="report-finding__num">F4</div>
+            <div>
+              <h4 class="report-finding__h">Hotel occupancy of 92.7% in central districts; ADR rises 38%.</h4>
+              <p>Average Daily Rate in Orchard, Marina Bay and Bras Basah districts rises 38% during the concert window. Outer-ring districts show muted +9% impact.</p>
+            </div>
+          </div>
+
+          <div class="report-finding">
+            <div class="report-finding__num">F5</div>
+            <div>
+              <h4 class="report-finding__h">Q1 real GDP contribution of +0.25pp — small at macro, large at margin.</h4>
+              <p>Aggregate contribution to Q1 2024 real GDP growth is estimated at <b>+0.25 percentage points</b>. While modest in absolute terms, this single six-night event accounts for ~7% of the quarter's total expansion.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="report-section" id="rs-4">
+          <h2 class="report-section__h"><span class="report-section__num">04</span>Risks &amp; limitations</h2>
+          <ul class="report-risks">
+            <li><b>Agent calibration drift.</b> Personality priors are sampled from 2008 norms; cohort effects since may shift consumption response.</li>
+            <li><b>Social-media virality is hard to forecast.</b> Halo magnitude is highly sensitive to assumed propagation coefficients; ±25% shifts halo from 6w to 14w.</li>
+            <li><b>Single-event modelling.</b> The framework does not model crowding-out — concurrent events at lesser venues during the same week may divert receipts.</li>
+            <li><b>Counterfactual baseline.</b> The "no-concert" baseline relies on a synthetic-control match using Mar 2023 + seasonal adjustment.</li>
+          </ul>
+        </section>
+
+        <section class="report-section" id="rs-5">
+          <h2 class="report-section__h"><span class="report-section__num">05</span>Decision log</h2>
+          <p>Three analyst checkpoints occurred during this run (Light-Touch mode):</p>
+          <ol class="report-decisions">
+            <li>
+              <div class="report-decisions__when">After step 02 · Plan</div>
+              <div class="report-decisions__what"><b>Selected sandbox + light-touch participation.</b> Agent autonomy retained; pauses at 3 economic checkpoints.</div>
+            </li>
+            <li>
+              <div class="report-decisions__when">Round 38 · Pre-event peak</div>
+              <div class="report-decisions__what"><b>Approved tourism inflow assumption</b> (35K SEA / 18K AU+NZ) over baseline-only fallback.</div>
+            </li>
+            <li>
+              <div class="report-decisions__when">Round 91 · Halo modelling</div>
+              <div class="report-decisions__what"><b>Extended halo window from 6w → 12w.</b> Justified by social-listening data showing sustained engagement on TikTok.</div>
+            </li>
+          </ol>
+        </section>
+
+        <section class="report-section" id="rs-6">
+          <h2 class="report-section__h"><span class="report-section__num">06</span>Closing</h2>
+          <p>Within the bounds of the calibration and the assumptions noted in §4, we are confident the projected receipts and halo dynamic are robust signals — not artefacts of model construction.</p>
+          <p class="report-section__sig">— <i>Loka Research, March 2024</i></p>
+        </section>
+
+        <footer class="report-doc__foot">
+          <div>Generated by Loka v1.0 · Run #7c4-a01 · 2,000 agents · 120 rounds · 10,000 MC iterations</div>
+          <div>This document is a draft. Contact the analyst before circulation.</div>
+        </footer>
+      </article>
+
+      <aside class="report-chat">
+        <div class="report-chat__head">
+          <div class="report-chat__title">Ask the model</div>
+          <div class="report-chat__sub">Loka has read every line of this report.</div>
         </div>
-        <div class="report-chat__input">
-          <input type="text" placeholder="Ask about the report..." id="report-chat-input" />
-          <button class="btn btn--primary btn--sm" id="btn-report-send">→</button>
+        <div class="report-chat__body" id="report-chat-body">
+          <div class="report-chat__msg">
+            <div class="report-chat__avatar">L</div>
+            <div class="report-chat__bubble">Hi — I'm Loka, the analyst behind this run. Ask me to clarify any finding, walk through the methodology, or stress-test an assumption.</div>
+          </div>
         </div>
-      </div>
+        <div class="report-chat__suggest" id="report-chat-suggest">
+          <button class="report-chat__sug">Summarise key findings</button>
+          <button class="report-chat__sug">Why is the halo 8–12 weeks?</button>
+          <button class="report-chat__sug">Stress-test the receipts forecast</button>
+        </div>
+        <form class="report-chat__form" id="report-chat-form">
+          <input type="text" class="report-chat__input" placeholder="Ask a question…" id="report-chat-input">
+          <button type="submit" class="report-chat__send">→</button>
+        </form>
+      </aside>
     </div>
   `;
 
-  // TOC clicks
-  el.querySelectorAll('.report-toc__item').forEach(item => {
-    item.addEventListener('click', (e) => {
+  // ── TOC scroll-spy ──
+  const tocLinks = el.querySelectorAll('.report-toc__list a');
+  function activateLink(id) {
+    tocLinks.forEach(a => a.classList.toggle('is-active', a.getAttribute('href') === '#' + id));
+  }
+  tocLinks.forEach(a => {
+    a.addEventListener('click', e => {
       e.preventDefault();
-      const target = el.querySelector(item.getAttribute('href'));
+      const id = a.getAttribute('href').slice(1);
+      const target = el.querySelector('#' + id);
       if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      activateLink(id);
     });
   });
+  activateLink(SECTIONS[0].id);
 
-  // Export
-  el.querySelector('#btn-export-pdf').addEventListener('click', () => {
-    const btn = el.querySelector('#btn-export-pdf');
-    btn.textContent = '✓ Exported';
-    btn.disabled = true;
-    setTimeout(() => { btn.textContent = 'Export PDF'; btn.disabled = false; }, 2000);
-  });
-
-  // ── Chart-selection context ─────────────────────────────────────────
-  // Listens for `loka:chart-selected` events dispatched by the embedded
-  // analytics section (map click, bar click, pie slice, sentiment dot,
-  // GDP point). The chip above the chat input shows the selection and
-  // scopes the next outgoing question to that data point.
-  let activeChartSelection = null;
-  const ctxEl         = el.querySelector('#report-chat-context');
-  const ctxChartEl    = el.querySelector('#report-chat-context-chart');
-  const ctxValueEl    = el.querySelector('#report-chat-context-value');
-  const ctxSummaryEl  = el.querySelector('#report-chat-context-summary');
-  const ctxClearEl    = el.querySelector('#report-chat-context-clear');
-  const chatInputEl   = el.querySelector('#report-chat-input');
-
-  function showChartContext(sel) {
-    activeChartSelection = sel;
-    if (!ctxEl) return;
-    ctxChartEl.textContent   = sel.chart;
-    ctxValueEl.textContent   = sel.label;
-    ctxSummaryEl.textContent = sel.summary || '';
-    ctxEl.hidden = false;
-    // Nudge the input placeholder so users know questions are scoped
-    if (chatInputEl) chatInputEl.placeholder = `Ask about ${sel.label}…`;
-  }
-  function clearChartContext() {
-    activeChartSelection = null;
-    if (!ctxEl) return;
-    ctxEl.hidden = true;
-    if (chatInputEl) chatInputEl.placeholder = 'Ask about the report...';
-  }
-  if (ctxClearEl) ctxClearEl.addEventListener('click', clearChartContext);
-
-  const onChartSelected = (e) => {
-    if (!e.detail) return;
-    showChartContext(e.detail);
-    // Pull focus to the chat input so the next keystroke flows there
-    if (chatInputEl) chatInputEl.focus();
-  };
-  window.addEventListener('loka:chart-selected', onChartSelected);
-
-  // Chat functionality
-  // Chat — calls real backend LLM (/api/chat/stream) with conversation history.
-  async function sendChat(question) {
-    const messagesEl = el.querySelector('#report-chat-messages');
-
-    // Snapshot and clear the chart-selection chip so the next question
-    // starts fresh. The snapshot is attached to the user's message
-    // bubble (for display) AND prepended to the LLM payload (as scope).
-    const selection = activeChartSelection;
-    clearChartContext();
-
-    const userMsg = document.createElement('div');
-    userMsg.className = 'report-chat__msg report-chat__msg--user';
-    const selBadge = selection
-      ? `<div class="report-chat__msg-badge">
-           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-           <span>${selection.chart} · <strong>${selection.label}</strong></span>
-         </div>`
-      : '';
-    userMsg.innerHTML = `<div class="report-chat__msg-content">${selBadge}${question}</div>`;
-    messagesEl.appendChild(userMsg);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
-
-    // The message handed to the LLM includes a short context preamble
-    // so the model can anchor its answer on the selected data point.
-    const llmQuestion = selection
-      ? `[Context: user clicked "${selection.chart}" → ${selection.label}. ${selection.summary || ''}]\n\n${question}`
-      : question;
-
-    const svgDoc = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
-    const svgTable = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/></svg>';
-    const svgCheck = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="m9 12 2 2 4-4"/></svg>';
-    const svgRuler = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>';
-    const svgPen = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
-    const thinkingSteps = [
-      { icon: svgDoc,   text: 'Scanning report sections & appendices...' },
-      { icon: svgTable, text: 'Retrieving relevant data tables & figures...' },
-      { icon: svgCheck, text: 'Cross-validating with simulation logs...' },
-      { icon: svgRuler, text: 'Checking confidence intervals & sensitivity ranges...' },
-      { icon: svgPen,   text: 'Composing response...' },
-    ];
-
-    const thinkingEl = document.createElement('div');
-    thinkingEl.className = 'report-chat__msg report-chat__msg--ai';
-    thinkingEl.innerHTML = `
-      <div class="report-chat__msg-avatar">LK</div>
-      <div class="report-chat__msg-content">
-        <div class="report-chat__msg-name">Loka AI</div>
-        <div class="chat-thinking-flow">
-          <div class="chat-thinking-flow__header">
-            <span class="chat-thinking-flow__spinner"></span>
-            <span>Analyzing query...</span>
-          </div>
-          <div class="chat-thinking-flow__steps"></div>
-        </div>
-      </div>
+  // ── Chat ──
+  const chatBody = el.querySelector('#report-chat-body');
+  const chatForm = el.querySelector('#report-chat-form');
+  const chatInput = el.querySelector('#report-chat-input');
+  function pushMsg(text, who) {
+    const msg = document.createElement('div');
+    msg.className = 'report-chat__msg' + (who === 'user' ? ' report-chat__msg--user' : '');
+    msg.innerHTML = `
+      <div class="report-chat__avatar">${who === 'user' ? 'You' : 'L'}</div>
+      <div class="report-chat__bubble">${text}</div>
     `;
-    messagesEl.appendChild(thinkingEl);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
-
-    const stepsContainer = thinkingEl.querySelector('.chat-thinking-flow__steps');
-
-    let cancelSteps = false;
-    (async () => {
-      for (let i = 0; i < thinkingSteps.length; i++) {
-        if (cancelSteps) break;
-        const step = thinkingSteps[i];
-        const stepEl = document.createElement('div');
-        stepEl.className = 'chat-thinking-flow__step';
-        stepEl.innerHTML = `<span class="chat-thinking-flow__step-icon">${step.icon}</span><span class="chat-thinking-flow__step-text">${step.text}</span>`;
-        stepsContainer.appendChild(stepEl);
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-        await delay(700);
-        if (!cancelSteps) {
-          stepEl.classList.add('done');
-          stepEl.querySelector('.chat-thinking-flow__step-text').textContent = step.text.replace('...', ' — done');
-        }
-      }
-    })();
-
-    let aiMsg = null;
-    let textEl = null;
-
-    const onFirstDelta = () => {
-      cancelSteps = true;
-      thinkingEl.remove();
-      aiMsg = document.createElement('div');
-      aiMsg.className = 'report-chat__msg report-chat__msg--ai';
-      aiMsg.innerHTML = `
-        <div class="report-chat__msg-avatar">LK</div>
-        <div class="report-chat__msg-content">
-          <div class="report-chat__msg-name">Loka AI</div>
-          <div class="report-chat__msg-text"></div>
-        </div>
-      `;
-      messagesEl.appendChild(aiMsg);
-      textEl = aiMsg.querySelector('.report-chat__msg-text');
-      textEl.style.whiteSpace = 'pre-wrap';
-    };
-
-    const onDelta = (delta) => {
-      if (!textEl) return;
-      textEl.append(delta);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-    };
-
-    try {
-      await streamChatApi(llmQuestion, { onFirstDelta, onDelta });
-    } catch (err) {
-      cancelSteps = true;
-      if (thinkingEl.parentNode) thinkingEl.remove();
-      const errMsg = document.createElement('div');
-      errMsg.className = 'report-chat__msg report-chat__msg--ai';
-      errMsg.innerHTML = `
-        <div class="report-chat__msg-avatar">LK</div>
-        <div class="report-chat__msg-content">
-          <div class="report-chat__msg-name">Loka AI</div>
-          <div class="report-chat__msg-text" style="color:#c33;">Sorry, I couldn't reach the analysis backend. (${err.message})</div>
-        </div>
-      `;
-      messagesEl.appendChild(errMsg);
-    }
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    chatBody.appendChild(msg);
+    chatBody.scrollTop = chatBody.scrollHeight;
   }
-
-  el.querySelectorAll('.report-chat__suggestion').forEach(btn => {
-    btn.addEventListener('click', () => { sendChat(btn.textContent); btn.remove(); });
+  function answer(q) {
+    const hit = CHAT_HEURISTICS.find(h => h.re.test(q));
+    return hit ? hit.a : "I'm a demo bot — ask about the findings, halo, stress-test, or counterfactual baseline and I'll respond from the report's content.";
+  }
+  function ask(q) {
+    pushMsg(q, 'user');
+    setTimeout(() => pushMsg(answer(q), 'bot'), 480);
+  }
+  chatForm.addEventListener('submit', e => {
+    e.preventDefault();
+    const v = chatInput.value.trim();
+    if (!v) return;
+    chatInput.value = '';
+    ask(v);
   });
-  el.querySelector('#btn-report-send').addEventListener('click', () => {
-    const input = el.querySelector('#report-chat-input');
-    if (input.value.trim()) { sendChat(input.value.trim()); input.value = ''; }
-  });
-  el.querySelector('#report-chat-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') el.querySelector('#btn-report-send').click();
+  el.querySelectorAll('.report-chat__sug').forEach(btn => {
+    btn.addEventListener('click', () => ask(btn.textContent));
   });
 
-  // Mount the analytics panels inline inside the paper. Keep a handle so
-  // _runAnimation / _loadProject can forward their hooks to this section.
-  const analyticsSection = createAnalyticsSection();
-  const analyticsMount = el.querySelector('#report-analytics-mount');
-  if (analyticsMount) analyticsMount.appendChild(analyticsSection.element);
-
-  el._runAnimation = async () => {
-    await delay(150);
-    const sections = el.querySelectorAll('[data-reveal]');
-    for (const section of sections) {
-      section.classList.add('visible');
-      section.style.opacity = '1';
-      section.style.transform = 'translateY(0)';
-      section.style.transition = 'all 0.35s ease';
-      await delay(100);
-    }
-    const miniCanvas = el.querySelector('#report-mini-chart');
-    if (miniCanvas) drawMiniChart(miniCanvas);
-    // Fire the embedded analytics animation (map + 4 charts)
-    if (analyticsSection.runAnimation) {
-      analyticsSection.runAnimation().catch((err) =>
-        console.warn('analytics section animation failed:', err)
-      );
-    }
-    // Hydrate any inline chart placeholders that the real-mode consulting
-    // template paper might have inserted.
-    hydrateInlineCharts(el.querySelector('#report-paper'), cachedAnalytics);
-  };
-
-  /**
-   * Real-mode hook — fetch /api/project/<id>/data, swap the paper
-   * innerHTML to the consulting-template layout with role badges and
-   * inline chart placeholders, then hydrate charts and reset chat.
-   */
-  el._loadProject = async (projectId) => {
-    if (!projectId) return;
-    currentProjectId = projectId;
-    const paperEl = el.querySelector('#report-paper');
-    const loadingBanner = `
-      <div style="padding:40px;text-align:center;color:var(--text-secondary);">
-        <div style="font-size:14px;margin-bottom:8px;">Loading project ${projectId}...</div>
-        <div style="font-size:12px;">Fetching analysis results from backend</div>
-      </div>`;
-    paperEl.innerHTML = loadingBanner;
-
-    try {
-      const data = await fetchProjectData(projectId);
-      const adapted = adaptReportForFrontend(data);
-      reportContent = adapted;
-      cachedAnalytics = data.analytics || null;
-      chatHistory.length = 0;
-
-      // Re-render the paper div using the consulting-template layout
-      paperEl.innerHTML = buildConsultingPaperHtml(reportContent);
-
-      // Hydrate the [[chart:xxx]] inline placeholders
-      hydrateInlineCharts(paperEl, cachedAnalytics);
-
-      // Re-bind the restart button (innerHTML wiped the handler)
-      const restart = paperEl.querySelector('#btn-restart');
-      if (restart) restart.addEventListener('click', () => {
-        window.location.hash = '';
-        window.location.reload();
-      });
-
-      // Re-bind TOC clicks
-      paperEl.querySelectorAll('.report-toc__item').forEach(item => {
-        item.addEventListener('click', (e) => {
-          e.preventDefault();
-          const target = paperEl.querySelector(item.getAttribute('href'));
-          if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        });
-      });
-
-      // Reveal all sections immediately
-      paperEl.querySelectorAll('[data-reveal]').forEach(section => {
-        section.classList.add('visible');
-        section.style.opacity = '1';
-        section.style.transform = 'translateY(0)';
-        section.style.transition = 'all 0.35s ease';
-      });
-
-      // Re-insert the analytics section (paper.innerHTML wiped its mount).
-      // Appending it after the last data-reveal keeps it inside the paper
-      // scroll column, directly before the global report actions.
-      const analyticsWrap = document.createElement('div');
-      analyticsWrap.className = 'report-section report-section--analytics';
-      analyticsWrap.id = 'analytics';
-      analyticsWrap.innerHTML = `
-        <div class="report-section__title"><span class="mono">§</span>Quantitative Analytics</div>
-        <div class="report-section__body">
-          <p style="color:var(--text-secondary);font-size:13px;margin:0 0 14px;">
-            Interactive dashboards derived from the multi-agent simulation.
-          </p>
-        </div>
-      `;
-      analyticsWrap.appendChild(analyticsSection.element);
-      const actionsEl = paperEl.querySelector('.report-actions');
-      if (actionsEl) actionsEl.parentNode.insertBefore(analyticsWrap, actionsEl);
-      else paperEl.appendChild(analyticsWrap);
-
-      // Hydrate the analytics section with backend data and fire its
-      // chart animation so the embedded map + 4 charts match this project.
-      if (analyticsSection.loadProject) {
-        try { await analyticsSection.loadProject(projectId); } catch (e) { /* no-op */ }
-      }
-      if (analyticsSection.runAnimation) {
-        analyticsSection.runAnimation().catch((err) =>
-          console.warn('analytics section animation failed:', err)
-        );
-      }
-
-      // Reset chat panel to a fresh greeting
-      const messagesEl = el.querySelector('#report-chat-messages');
-      if (messagesEl) {
-        messagesEl.innerHTML = `
-          <div class="report-chat__msg report-chat__msg--ai">
-            <div class="report-chat__msg-avatar">LK</div>
-            <div class="report-chat__msg-content">
-              <div class="report-chat__msg-name">Loka AI</div>
-              I've loaded your analysis for project <code>${projectId}</code>. Ask me anything about the findings, methodology, or implications.
-            </div>
-          </div>`;
-      }
-    } catch (err) {
-      paperEl.innerHTML = `
-        <div style="padding:40px;text-align:center;">
-          <div style="color:#c33;font-size:14px;margin-bottom:8px;">Failed to load project</div>
-          <div style="color:var(--text-secondary);font-size:12px;font-family:var(--font-mono);">${err.message}</div>
-        </div>`;
-    }
-  };
+  // legacy hooks
+  el._loadProject = () => {};
 
   return el;
-}
-
-/**
- * Build the consulting-template paper HTML for real-mode reports.
- * Each section gets a coloured role badge above its title, and
- * [[chart:xxx]] placeholders in the body are kept as divs that
- * hydrateInlineCharts will render into canvases.
- */
-function buildConsultingPaperHtml(content) {
-  const sectionHtml = (s) => {
-    const role = s.role;
-    const badge = role && ROLE_LABELS[role]
-      ? `<div class="report-role-badge" style="--role-color:${ROLE_COLORS[role] || '#9B9A97'}">
-           <span class="report-role-badge__dot"></span>
-           <span class="report-role-badge__name">${ROLE_LABELS[role]}</span>
-         </div>`
-      : '';
-    return `
-      <div class="report-section" data-reveal id="section-${s.num}">
-        ${badge}
-        <div class="report-section__title"><span class="mono" style="margin-right: 8px;">${s.num}.</span>${s.title}</div>
-        <div class="report-section__body">${s.body || ''}</div>
-      </div>`;
-  };
-
-  return `
-    <div class="report-header anim-fade-up">
-      <div class="report-header__left">
-        <div class="report-header__logo"><span class="accent-text">Loka</span> Consulting</div>
-        <div class="report-header__meta">
-          Model: ${content.model || 'Loka Multi-Agent Simulation'}<br/>
-          Engine: Loka Consulting AI
-        </div>
-      </div>
-      <div class="report-header__right">
-        <div class="report-header__classification">${content.classification || 'CONFIDENTIAL'}</div>
-        <div class="report-header__date">${content.date || ''}</div>
-      </div>
-    </div>
-
-    <div class="report-paper-title" data-reveal>
-      <h1>${content.title || ''}</h1>
-      <p class="report-paper-subtitle">${content.subtitle || ''}</p>
-      <div class="report-paper-authors">Loka Consulting AI · Multi-Agent Simulation Analysis</div>
-    </div>
-
-    <div class="report-toc" data-reveal>
-      <div class="report-toc__title">Table of Contents</div>
-      <div class="report-toc__items">
-        <a class="report-toc__item" href="#abstract">Executive Brief</a>
-        ${(content.sections || []).map(s => `<a class="report-toc__item" href="#section-${s.num}"><span class="mono">${s.num}</span> ${s.title}</a>`).join('')}
-      </div>
-    </div>
-
-    <div class="report-section" data-reveal id="abstract">
-      <div class="report-section__title">Executive Brief</div>
-      <div class="report-section__body report-abstract">${content.abstract || ''}</div>
-    </div>
-
-    ${(content.sections || []).map(sectionHtml).join('')}
-
-    <div class="report-actions anim-fade-up">
-      <button class="btn btn--secondary" id="btn-restart">New Analysis</button>
-    </div>
-  `;
-}
-
-/**
- * Scan a freshly rendered paper element for `.inline-chart[data-chart=...]`
- * placeholders and draw a canvas into each one using the analytics payload
- * cached from /api/project/<id>/data.
- */
-function hydrateInlineCharts(paperEl, analytics) {
-  if (!paperEl || !analytics) return;
-  const placeholders = paperEl.querySelectorAll('.inline-chart');
-  placeholders.forEach((div) => {
-    const chartId = div.dataset.chart;
-    if (!chartId) return;
-    // Skip if already hydrated (caption + canvas children present)
-    if (div.querySelector('canvas')) return;
-    div.innerHTML = `
-      <div class="inline-chart__caption">Figure — ${CHART_TITLES[chartId] || chartId}</div>
-      <canvas class="inline-chart__canvas"></canvas>
-    `;
-    const canvas = div.querySelector('canvas');
-    requestAnimationFrame(() => {
-      try {
-        renderInlineChart(chartId, canvas, analytics);
-      } catch (err) {
-        console.warn('inline chart render failed:', chartId, err);
-      }
-    });
-  });
-}
-
-function drawMiniChart(canvas) {
-  if (!canvas) return;
-  const w = 620, h = 120;
-  canvas.width = w * devicePixelRatio;
-  canvas.height = h * devicePixelRatio;
-  canvas.style.width = '100%';
-  canvas.style.maxWidth = w + 'px';
-  canvas.style.height = h + 'px';
-  const ctx = canvas.getContext('2d');
-  ctx.scale(devicePixelRatio, devicePixelRatio);
-
-  const data = [100, 102, 108, 126, 182, 145, 120, 108, 104];
-  const upper = [100, 106, 118, 142, 210, 168, 135, 118, 112];
-  const lower = [100, 98, 100, 114, 158, 128, 108, 100, 97];
-  const baseline = [100, 100.3, 100.6, 100.8, 101, 101.2, 101, 100.8, 101];
-  const labels = ['W-4', 'W-3', 'W-2', 'W-1', 'Event', 'W+1', 'W+2', 'W+3', 'W+4'];
-  const pad = { top: 16, right: 20, bottom: 28, left: 40 };
-  const cw = w - pad.left - pad.right;
-  const ch = h - pad.top - pad.bottom;
-  const maxVal = 230, minVal = 85;
-
-  const getX = (i) => pad.left + (cw / (data.length - 1)) * i;
-  const getY = (v) => pad.top + ch - ((v - minVal) / (maxVal - minVal)) * ch;
-
-  ctx.beginPath();
-  for (let i = 0; i < upper.length; i++) ctx.lineTo(getX(i), getY(upper[i]));
-  for (let i = lower.length - 1; i >= 0; i--) ctx.lineTo(getX(i), getY(lower[i]));
-  ctx.closePath();
-  ctx.fillStyle = 'rgba(35,131,226,0.08)';
-  ctx.fill();
-
-  ctx.beginPath();
-  baseline.forEach((v, i) => { if (i === 0) ctx.moveTo(getX(i), getY(v)); else ctx.lineTo(getX(i), getY(v)); });
-  ctx.strokeStyle = '#B4B4B0'; ctx.lineWidth = 1; ctx.setLineDash([4, 4]); ctx.stroke(); ctx.setLineDash([]);
-
-  ctx.beginPath();
-  data.forEach((v, i) => { if (i === 0) ctx.moveTo(getX(i), getY(v)); else ctx.lineTo(getX(i), getY(v)); });
-  ctx.strokeStyle = '#2383E2'; ctx.lineWidth = 2; ctx.stroke();
-
-  data.forEach((v, i) => {
-    ctx.beginPath(); ctx.arc(getX(i), getY(v), 3, 0, Math.PI * 2);
-    ctx.fillStyle = '#2383E2'; ctx.fill();
-  });
-
-  labels.forEach((l, i) => {
-    ctx.font = '9px Inter'; ctx.fillStyle = '#B4B4B0'; ctx.textAlign = 'center';
-    ctx.fillText(l, getX(i), h - 6);
-  });
-
-  ctx.font = '10px JetBrains Mono'; ctx.fillStyle = '#2383E2'; ctx.textAlign = 'center';
-  ctx.fillText('+80% GDP uplift at peak', getX(4), getY(182) - 10);
 }

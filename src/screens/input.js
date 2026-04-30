@@ -1,257 +1,284 @@
-// Input Screen — Step 1 of 2.
-//
-// Collects the scenario description, data sources, and model parameters.
-// The primary action ("Generate plan →") hands the scenario to the Plan
-// screen (src/screens/plan.js) which in turn handles participation mode,
-// run mode, and the pipeline execution.
+// Scenario screen — Lokafish Flow design (Stage 1)
+// Conventional form: textarea + horizon/confidence selects + data-source
+// checkboxes + advanced disclosure + primary submit button. Right rail
+// shows clickable starter scenarios.
+
+const STARTER_EXAMPLES = [
+  {
+    tag: 'Entertainment',
+    title: 'Taylor Swift × Singapore — concert tourism & GDP',
+    text: "Predict the economic impact of Taylor Swift's Eras Tour concert series in Singapore. Analyze the effects on tourism, hospitality, aviation, local businesses, and overall GDP contribution. Consider both direct and indirect economic multiplier effects across all relevant industries.",
+    active: true,
+  },
+  {
+    tag: 'Macro',
+    title: 'Fed cut → Asian markets — cross-border capital flows',
+    text: 'Analyze how a 50 basis point Fed rate cut would impact Asian equity markets, currency pairs, and capital flows over the next 6 months.',
+  },
+  {
+    tag: 'Sports',
+    title: 'Olympics 2028 LA — infrastructure & tourism multiplier',
+    text: 'Model the economic multiplier effects of the 2028 Los Angeles Olympics on Southern California\'s economy, including infrastructure, tourism, and employment.',
+  },
+  {
+    tag: 'Technology',
+    title: 'NVIDIA → supply chain — tech-sector cascade',
+    text: 'Simulate the ripple effects of an NVIDIA earnings beat/miss on the global semiconductor supply chain, AI infrastructure spending, and tech sector valuations.',
+  },
+  {
+    tag: 'Infrastructure',
+    title: 'ASEAN high-speed rail — regional trade & labor',
+    text: 'Assess the economic impact of a new high-speed rail connecting Bangkok, Kuala Lumpur, and Singapore on regional trade and labor markets.',
+  },
+];
+
+const HORIZON_OPTIONS = [
+  ['1w',  '1 week'],
+  ['2w',  '2 weeks'],
+  ['4w',  '4 weeks'],
+  ['12w', '12 weeks · quarter'],
+  ['52w', '52 weeks · annual'],
+];
+const CONFIDENCE_OPTIONS = ['80', '90', '95', '99'];
 
 export function createInput(onSubmit) {
   const el = document.createElement('div');
-  el.className = 'screen input-screen';
+  el.className = 'screen flow-screen flow-screen--scenario';
   el.id = 'screen-input';
 
-  const defaultScenario = "Predict the economic impact of Taylor Swift's Eras Tour concert series in Singapore. Analyze the effects on tourism, hospitality, aviation, local businesses, and overall GDP contribution. Consider both direct and indirect economic multiplier effects across all relevant industries.";
+  const examplesHtml = STARTER_EXAMPLES.map((e, i) => `
+    <div class="sc-example${e.active ? ' is-active' : ''}" data-idx="${i}">
+      <span class="sc-example__tag">${e.tag}</span>
+      <span class="sc-example__title">${e.title}</span>
+    </div>
+  `).join('');
+
+  const horizonHtml = HORIZON_OPTIONS.map(([v, label]) =>
+    `<option value="${v}"${v === '4w' ? ' selected' : ''}>${label}</option>`
+  ).join('');
+  const confHtml = CONFIDENCE_OPTIONS.map(c =>
+    `<option value="${c}"${c === '80' ? ' selected' : ''}>${c}%</option>`
+  ).join('');
 
   el.innerHTML = `
-    <div class="input-screen__container">
-      <div class="input-screen__main anim-fade-up">
-        <div class="input-screen__step">Step 1 of 2</div>
-        <h2 class="input-screen__heading">Configure your simulation</h2>
-        <p class="input-screen__lead">Describe the scenario. Set governance. Run.</p>
-
-        <div class="input-section-label">Scenario</div>
-        <div class="input-screen__textarea-wrap">
-          <textarea class="input-screen__textarea" id="scenario-input" placeholder="e.g., Predict the economic impact of a major event on a city's GDP, tourism, and local businesses...">${defaultScenario}</textarea>
-          <div class="input-screen__char-count" id="char-count"></div>
+    <div class="flow-stage">
+      <header class="flow-head">
+        <div class="flow-head__kicker">
+          <span class="flow-head__num">01</span>
+          <span>Scenario</span>
         </div>
+        <h1 class="flow-head__title">Describe the <em>scenario.</em></h1>
+        <p class="flow-head__sub">Loka deploys thousands of autonomous agents against your question. The clearer the framing, the sharper the simulation.</p>
+      </header>
 
-        <div class="input-section-label">Data sources</div>
-        <div class="input-screen__toggles">
-          <div class="input-screen__toggle-row">
-            <div>
-              <div class="input-screen__toggle-label">Autonomous Data Collection</div>
-              <div class="input-screen__toggle-desc">Loka agents autonomously gather and synthesize relevant public data</div>
+      <div class="flow-scenario-grid">
+        <div>
+          <div class="sc-card">
+            <div class="sc-field">
+              <label class="sc-field__label" for="scenario-input">Your scenario <span class="req">*</span></label>
+              <p class="sc-field__hint">Describe the question you want Loka's agents to investigate. The clearer the framing, the sharper the simulation.</p>
+              <div class="sc-input-wrap">
+                <textarea class="sc-input" id="scenario-input" placeholder="e.g. Predict the economic impact of…">${STARTER_EXAMPLES[0].text}</textarea>
+                <div class="sc-input-meta">
+                  <span id="char-count">0 chars</span>
+                  <span><kbd>⌘</kbd> <kbd>↵</kbd> to submit</span>
+                </div>
+              </div>
             </div>
-            <div class="toggle-switch on" id="toggle-ai-data"><div class="toggle-switch__knob"></div></div>
-          </div>
 
-          <div class="input-screen__toggle-row">
-            <div>
-              <div class="input-screen__toggle-label">Upload Custom Data</div>
-              <div class="input-screen__toggle-desc">Provide proprietary datasets, internal reports, or research papers</div>
+            <div class="sc-grid-2">
+              <div class="sc-field">
+                <label class="sc-field__label" for="select-horizon">Time horizon</label>
+                <p class="sc-field__hint">How far ahead to forecast.</p>
+                <div class="sc-select-wrap">
+                  <select class="sc-select" id="select-horizon">${horizonHtml}</select>
+                </div>
+              </div>
+              <div class="sc-field">
+                <label class="sc-field__label" for="select-confidence">Confidence level</label>
+                <p class="sc-field__hint">Width of the simulation confidence interval.</p>
+                <div class="sc-select-wrap">
+                  <select class="sc-select" id="select-confidence">${confHtml}</select>
+                </div>
+              </div>
             </div>
-            <div class="toggle-switch" id="toggle-upload"><div class="toggle-switch__knob"></div></div>
-          </div>
-        </div>
 
-        <div class="input-screen__upload" id="upload-area">
-          <div style="font-size: 28px; margin-bottom: 6px; opacity: 0.4;">↑</div>
-          <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 4px;">Drop files here or click to browse</div>
-          <div>Supports PDF, CSV, XLSX, JSON — Max 50MB per file</div>
-        </div>
-
-        <div class="input-section-label">Model parameters</div>
-        <!-- ADVANCED SETTINGS PANEL -->
-        <div class="advanced-panel" id="advanced-panel">
-          <div class="advanced-panel__header" id="advanced-toggle">
-            <span class="advanced-panel__arrow" id="advanced-arrow">▸</span>
-            <span>Advanced Configuration</span>
-          </div>
-          <div class="advanced-panel__body" id="advanced-body">
-            <div class="advanced-panel__grid">
-              <div class="advanced-param">
-                <div class="advanced-param__header">
-                  <span class="advanced-param__label">Simulation Rounds</span>
-                  <span class="advanced-param__value mono" id="val-rounds">120</span>
-                </div>
-                <input type="range" min="40" max="200" value="120" step="10" id="slider-rounds" />
-                <div class="advanced-param__hint">Higher = more precise predictions, longer runtime</div>
+            <div class="sc-field">
+              <span class="sc-field__label">Data sources</span>
+              <p class="sc-field__hint">Choose where the agents pull data from. You can pick both.</p>
+              <div class="sc-checkboxes">
+                <label class="sc-check is-on" id="pill-ai-data">
+                  <span class="sc-check__box"><svg viewBox="0 0 16 16"><polyline points="3,9 7,12 13,5"/></svg></span>
+                  <span class="sc-check__body">
+                    <span class="sc-check__name">Auto-collect public data</span>
+                    <span class="sc-check__desc">Web search, news, public datasets, financial APIs.</span>
+                  </span>
+                </label>
+                <label class="sc-check" id="pill-upload">
+                  <span class="sc-check__box"><svg viewBox="0 0 16 16"><polyline points="3,9 7,12 13,5"/></svg></span>
+                  <span class="sc-check__body">
+                    <span class="sc-check__name">Upload my own data</span>
+                    <span class="sc-check__desc">Attach PDFs, CSVs, or spreadsheets to ground the analysis.</span>
+                  </span>
+                </label>
               </div>
-
-              <div class="advanced-param">
-                <div class="advanced-param__header">
-                  <span class="advanced-param__label">Agent Population</span>
-                  <span class="advanced-param__value mono" id="val-agents">2,000</span>
-                </div>
-                <input type="range" min="500" max="10000" value="2000" step="500" id="slider-agents" />
-                <div class="advanced-param__hint">Number of autonomous agents to deploy in sandbox</div>
+              <div class="sc-upload" id="upload-area">
+                ↑ Drop files, or click to browse — PDF · CSV · XLSX · JSON · max 50 MB / file
               </div>
+            </div>
 
-              <div class="advanced-param">
-                <div class="advanced-param__header">
-                  <span class="advanced-param__label">Monte Carlo Iterations</span>
-                  <span class="advanced-param__value mono" id="val-monte">10,000</span>
-                </div>
-                <input type="range" min="1000" max="50000" value="10000" step="1000" id="slider-monte" />
-                <div class="advanced-param__hint">For confidence interval calculation</div>
-              </div>
+            <button type="button" class="sc-adv-trigger" id="advanced-toggle">
+              <span class="caret">▾</span>
+              <span>Advanced settings</span>
+            </button>
 
-              <div class="advanced-param">
-                <div class="advanced-param__header">
-                  <span class="advanced-param__label">Confidence Level</span>
-                  <span class="advanced-param__value mono" id="val-confidence">80%</span>
-                </div>
-                <select id="select-confidence" class="advanced-select">
-                  <option value="80" selected>80%</option>
-                  <option value="90">90%</option>
-                  <option value="95">95%</option>
-                  <option value="99">99%</option>
-                </select>
-              </div>
-
-              <div class="advanced-param">
-                <div class="advanced-param__header">
-                  <span class="advanced-param__label">Time Horizon</span>
-                </div>
-                <select id="select-horizon" class="advanced-select">
-                  <option value="1w">1 Week</option>
-                  <option value="2w">2 Weeks</option>
-                  <option value="4w" selected>4 Weeks</option>
-                  <option value="12w">12 Weeks (Quarter)</option>
-                  <option value="52w">52 Weeks (Annual)</option>
-                </select>
-              </div>
-
-              <div class="advanced-param">
-                <div class="advanced-param__header">
-                  <span class="advanced-param__label">Scenario Mode</span>
-                </div>
-                <div class="advanced-radios">
-                  <label class="advanced-radio"><input type="radio" name="scenario-mode" value="dual" checked /> <span>Dual (Optimistic + Pessimistic)</span></label>
-                  <label class="advanced-radio"><input type="radio" name="scenario-mode" value="single" /> <span>Single Baseline</span></label>
-                  <label class="advanced-radio"><input type="radio" name="scenario-mode" value="triple" /> <span>Triple (Bull / Base / Bear)</span></label>
-                </div>
-              </div>
-
-              <div class="advanced-param" style="grid-column: 1 / -1;">
-                <div class="advanced-param__header">
-                  <span class="advanced-param__label">Economic Models</span>
-                </div>
-                <div class="advanced-checkboxes">
-                  <label class="advanced-checkbox"><input type="checkbox" checked /> <span>Input-Output Model</span></label>
-                  <label class="advanced-checkbox"><input type="checkbox" checked /> <span>CGE (Computable General Equilibrium)</span></label>
-                  <label class="advanced-checkbox"><input type="checkbox" checked /> <span>Monte Carlo Simulation</span></label>
-                  <label class="advanced-checkbox"><input type="checkbox" /> <span>DSGE (Dynamic Stochastic)</span></label>
-                  <label class="advanced-checkbox"><input type="checkbox" /> <span>VAR / Bayesian VAR</span></label>
-                </div>
-              </div>
-
-              <div class="advanced-param" style="grid-column: 1 / -1;">
-                <div class="advanced-param__header">
-                  <span class="advanced-param__label">Geographic Scope</span>
-                </div>
-                <div class="advanced-geo">
-                  <div class="advanced-geo__primary">
-                    <span class="badge badge--blue">Primary</span>
-                    <span>Singapore</span>
+            <!-- Advanced tray now lives inside the card so it disclosure-expands
+                 in place rather than as a full-bleed strip below the grid. -->
+            <div class="sc-adv" id="advanced">
+              <div class="sc-adv__inner">
+                <div class="sc-adv__grid">
+                  <div class="sc-param">
+                    <div class="sc-param__head">
+                      <span class="sc-param__label">Simulation rounds</span>
+                      <span class="sc-param__value" id="val-rounds">120</span>
+                    </div>
+                    <input type="range" min="40" max="200" value="120" step="10" id="slider-rounds" />
+                    <div class="sc-param__hint">Higher = more precise, longer runtime.</div>
                   </div>
-                  <div class="advanced-geo__secondary">
-                    <span class="badge badge--orange">Secondary (Spillover)</span>
-                    <span style="color: var(--text-secondary)">Malaysia · Indonesia · Thailand · Japan · China · Australia</span>
+                  <div class="sc-param">
+                    <div class="sc-param__head">
+                      <span class="sc-param__label">Agent population</span>
+                      <span class="sc-param__value" id="val-agents">2,000</span>
+                    </div>
+                    <input type="range" min="500" max="10000" value="2000" step="500" id="slider-agents" />
+                    <div class="sc-param__hint">Heterogeneous agents in the sandbox.</div>
+                  </div>
+                  <div class="sc-param">
+                    <div class="sc-param__head"><span class="sc-param__label">Scenario mode</span></div>
+                    <div class="sc-param__seg" id="seg-scenario-mode">
+                      <button type="button" data-val="single">Single</button>
+                      <button type="button" data-val="dual" class="is-on">Dual</button>
+                      <button type="button" data-val="triple">Triple</button>
+                    </div>
+                    <div class="sc-param__hint">Dual = optimistic + pessimistic. Triple adds a base case.</div>
+                  </div>
+                  <div class="sc-param" style="grid-column: 1 / -1;">
+                    <div class="sc-param__head"><span class="sc-param__label">Economic models</span></div>
+                    <div class="sc-param__chips" id="model-chips">
+                      <button type="button" class="sc-param__chip is-on" data-key="io">Input-Output</button>
+                      <button type="button" class="sc-param__chip is-on" data-key="cge">CGE</button>
+                      <button type="button" class="sc-param__chip is-on" data-key="mc">Monte Carlo</button>
+                      <button type="button" class="sc-param__chip" data-key="dsge">DSGE</button>
+                      <button type="button" class="sc-param__chip" data-key="var">VAR / Bayesian</button>
+                    </div>
+                  </div>
+                  <div class="sc-param" style="grid-column: 1 / -1;">
+                    <div class="sc-param__head">
+                      <span class="sc-param__label">Geographic scope</span>
+                      <span style="font-family: 'Inter Tight', sans-serif; font-size: 0.82rem; color: var(--flow-muted-soft);">inferred from scenario</span>
+                    </div>
+                    <div style="font-family: 'Inter Tight', sans-serif; font-size: 0.95rem; line-height: 1.7; color: var(--flow-muted);">
+                      <span style="font-family: 'Source Serif 4', serif; font-weight: 500; font-size: 1.15rem; letter-spacing: -0.005em; color: var(--flow-fg);">Singapore</span>
+                      <span style="color: var(--flow-muted-soft);"> — primary</span>
+                      <span style="color: var(--flow-line-strong);"> · </span>
+                      <span>Malaysia · Indonesia · Thailand · Japan · China · Australia</span>
+                      <span style="color: var(--flow-muted-soft);"> — spillover</span>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
+
+            <div class="sc-submit-row">
+              <button type="button" class="flow-btn flow-btn--lg" id="btn-generate-plan">
+                Generate plan <span aria-hidden="true">→</span>
+              </button>
+            </div>
           </div>
         </div>
 
-        <div class="input-screen__actions">
-          <button class="btn btn--primary input-run-btn" id="btn-generate-plan">
-            Generate plan
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
-          </button>
-          <div class="input-screen__actions-hint">Next: review the generated plan &amp; choose your participation mode.</div>
-        </div>
-      </div>
-
-      <div class="input-screen__sidebar anim-fade-up delay-2">
-        <div class="input-screen__sidebar-title">Example Scenarios</div>
-        
-        <div class="input-screen__scenario-card" data-scenario="Predict the economic impact of Taylor Swift's Eras Tour concert series in Singapore. Analyze effects on tourism, hospitality, aviation, and GDP.">
-          <div class="tag">Entertainment</div>
-          <div><strong>Taylor Swift Eras Tour × Singapore</strong></div>
-          <div style="margin-top: 4px;">Concert-driven tourism & GDP analysis</div>
-        </div>
-
-        <div class="input-screen__scenario-card" data-scenario="Analyze how a 50 basis point Fed rate cut would impact Asian equity markets, currency pairs, and capital flows over the next 6 months.">
-          <div class="tag" style="background: var(--orange-dim); color: var(--orange);">Macro</div>
-          <div><strong>Fed Rate Decision → Asian Markets</strong></div>
-          <div style="margin-top: 4px;">Cross-border capital flow simulation</div>
-        </div>
-
-        <div class="input-screen__scenario-card" data-scenario="Model the economic multiplier effects of the 2028 Los Angeles Olympics on Southern California's economy, including infrastructure, tourism, and employment.">
-          <div class="tag" style="background: var(--green-dim); color: var(--green);">Sports</div>
-          <div><strong>Olympics 2028 LA Economic Model</strong></div>
-          <div style="margin-top: 4px;">Infrastructure & tourism multiplier</div>
-        </div>
-
-        <div class="input-screen__scenario-card" data-scenario="Simulate the ripple effects of an NVIDIA earnings beat/miss on the global semiconductor supply chain, AI infrastructure spending, and tech sector valuations.">
-          <div class="tag">Technology</div>
-          <div><strong>NVIDIA Earnings → Supply Chain</strong></div>
-          <div style="margin-top: 4px;">Tech sector cascade analysis</div>
-        </div>
-
-        <div class="input-screen__scenario-card" data-scenario="Assess the economic impact of a new high-speed rail connecting Bangkok, Kuala Lumpur, and Singapore on regional trade and labor markets.">
-          <div class="tag" style="background: var(--purple-dim); color: var(--purple);">Infrastructure</div>
-          <div><strong>ASEAN High-Speed Rail</strong></div>
-          <div style="margin-top: 4px;">Regional trade & labor dynamics</div>
-        </div>
+        <aside class="sc-examples">
+          <div class="sc-examples__head">Starters</div>
+          ${examplesHtml}
+        </aside>
       </div>
     </div>
   `;
 
-  // Toggles
-  el.querySelector('#toggle-ai-data').addEventListener('click', function() { this.classList.toggle('on'); });
-  el.querySelector('#toggle-upload').addEventListener('click', function() {
-    this.classList.toggle('on');
-    el.querySelector('#upload-area').classList.toggle('visible', this.classList.contains('on'));
-  });
+  const ta         = el.querySelector('#scenario-input');
+  const charCount  = el.querySelector('#char-count');
+  const advToggle  = el.querySelector('#advanced-toggle');
+  const adv        = el.querySelector('#advanced');
+  const submitBtn  = el.querySelector('#btn-generate-plan');
+  const sliderR    = el.querySelector('#slider-rounds');
+  const valR       = el.querySelector('#val-rounds');
+  const sliderA    = el.querySelector('#slider-agents');
+  const valA       = el.querySelector('#val-agents');
+  const seg        = el.querySelector('#seg-scenario-mode');
+  const checks     = el.querySelectorAll('.sc-check');
+  const uploadArea = el.querySelector('#upload-area');
+  let scenarioMode = 'dual';
 
-  // Advanced panel toggle
-  el.querySelector('#advanced-toggle').addEventListener('click', () => {
-    const body = el.querySelector('#advanced-body');
-    const arrow = el.querySelector('#advanced-arrow');
-    body.classList.toggle('open');
-    arrow.textContent = body.classList.contains('open') ? '▾' : '▸';
-  });
-
-  // Slider value updates
-  el.querySelector('#slider-rounds').addEventListener('input', (e) => {
-    el.querySelector('#val-rounds').textContent = e.target.value;
-  });
-  el.querySelector('#slider-agents').addEventListener('input', (e) => {
-    el.querySelector('#val-agents').textContent = parseInt(e.target.value).toLocaleString();
-  });
-  el.querySelector('#slider-monte').addEventListener('input', (e) => {
-    el.querySelector('#val-monte').textContent = parseInt(e.target.value).toLocaleString();
-  });
-  el.querySelector('#select-confidence').addEventListener('change', (e) => {
-    el.querySelector('#val-confidence').textContent = e.target.value + '%';
-  });
-
-  // Char counter
-  const scenarioInput = el.querySelector('#scenario-input');
-  const charCountEl   = el.querySelector('#char-count');
-  function updateCharCount() {
-    const n = scenarioInput.value.length;
-    charCountEl.textContent = n > 0 ? `${n} chars` : '';
+  function updateChar() {
+    const n = ta.value.length;
+    charCount.textContent = `${n.toLocaleString()} chars`;
   }
-  scenarioInput.addEventListener('input', updateCharCount);
-  updateCharCount();
+  function bindSlider(slider, valEl) {
+    slider.addEventListener('input', () => {
+      valEl.textContent = parseInt(slider.value, 10).toLocaleString();
+    });
+  }
 
-  // Scenario cards
-  el.querySelectorAll('.input-screen__scenario-card').forEach(card => {
-    card.addEventListener('click', () => {
-      scenarioInput.value = card.dataset.scenario;
-      updateCharCount();
+  ta.addEventListener('input', updateChar);
+  updateChar();
+  bindSlider(sliderR, valR);
+  bindSlider(sliderA, valA);
+
+  advToggle.addEventListener('click', () => {
+    advToggle.classList.toggle('is-open');
+    adv.classList.toggle('is-open');
+  });
+
+  seg.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      seg.querySelectorAll('button').forEach(b => b.classList.remove('is-on'));
+      btn.classList.add('is-on');
+      scenarioMode = btn.dataset.val;
     });
   });
 
-  // Primary action — hand the scenario to the Plan screen.
-  el.querySelector('#btn-generate-plan').addEventListener('click', () => {
-    const scenario = scenarioInput.value.trim();
-    if (!scenario) return;
-    onSubmit(scenario);
+  el.querySelectorAll('#model-chips .sc-param__chip').forEach(chip => {
+    chip.addEventListener('click', () => chip.classList.toggle('is-on'));
+  });
+
+  checks.forEach(c => {
+    c.addEventListener('click', e => {
+      e.preventDefault();
+      c.classList.toggle('is-on');
+      if (c.id === 'pill-upload') {
+        uploadArea.classList.toggle('is-visible', c.classList.contains('is-on'));
+      }
+    });
+  });
+
+  el.querySelectorAll('.sc-example').forEach(ex => {
+    ex.addEventListener('click', () => {
+      el.querySelectorAll('.sc-example').forEach(o => o.classList.remove('is-active'));
+      ex.classList.add('is-active');
+      ta.value = STARTER_EXAMPLES[parseInt(ex.dataset.idx, 10)].text;
+      updateChar();
+      ta.focus();
+    });
+  });
+
+  submitBtn.addEventListener('click', () => {
+    const scenario = ta.value.trim();
+    if (!scenario) { ta.focus(); return; }
+    onSubmit && onSubmit(scenario);
+  });
+
+  ta.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') submitBtn.click();
   });
 
   return el;

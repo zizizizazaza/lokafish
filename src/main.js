@@ -11,42 +11,53 @@ const app = document.querySelector('#app');
 let currentScreen = 0;
 const screens = [];
 
+// Flow nav — matches the Lokafish Flow design (sentence-case step pills,
+// Inter Tight 13.6px, JetBrains Mono numerals). Brand collapses to "← back"
+// on every screen except Home.
 const navbar = document.createElement('nav');
-navbar.className = 'navbar';
+navbar.className = 'flow-nav';
 navbar.innerHTML = `
-  <div class="navbar__logo">
-    <div class="navbar__logo-icon">LK</div>
-    <span>Loka</span>
+  <div class="flow-nav__brand">
+    <button type="button" class="flow-nav__brand-link" data-screen="0">
+      <span class="flow-nav__brand-back">← back</span>
+      <span class="flow-nav__brand-name">Lokafish</span>
+    </button>
   </div>
-  <div class="navbar__steps" id="nav-steps">
-    <button class="navbar__step active" data-screen="0"><span class="navbar__step-dot"></span> Home</button>
-    <div class="navbar__step-line"></div>
-    <button class="navbar__step" data-screen="1"><span class="navbar__step-dot"></span> Scenario</button>
-    <div class="navbar__step-line"></div>
-    <button class="navbar__step" data-screen="2"><span class="navbar__step-dot"></span> Plan</button>
-    <div class="navbar__step-line"></div>
-    <button class="navbar__step" data-screen="3"><span class="navbar__step-dot"></span> Simulation</button>
-    <div class="navbar__step-line"></div>
-    <button class="navbar__step" data-screen="4"><span class="navbar__step-dot"></span> Report</button>
+  <div class="flow-nav__steps" id="nav-steps">
+    <button class="flow-nav__step is-active" data-screen="1"><span class="flow-nav__step-num">01</span><span>Scenario</span></button>
+    <div class="flow-nav__step-line"></div>
+    <button class="flow-nav__step" data-screen="2"><span class="flow-nav__step-num">02</span><span>Plan</span></button>
+    <div class="flow-nav__step-line"></div>
+    <button class="flow-nav__step" data-screen="3"><span class="flow-nav__step-num">03</span><span>Simulation</span></button>
+    <div class="flow-nav__step-line"></div>
+    <button class="flow-nav__step" data-screen="4"><span class="flow-nav__step-num">04</span><span>Report</span></button>
   </div>
-  <div class="navbar__actions">
-    <button class="btn btn--ghost btn--sm" style="font-family: var(--font-mono); font-size: 11px;">v1.0</button>
-  </div>
+  <button class="flow-nav__cta" data-screen="1">Start simulation →</button>
 `;
 
-navbar.querySelectorAll('.navbar__step').forEach(btn => {
+navbar.querySelector('.flow-nav__brand-link').addEventListener('click', () => goToScreen(0));
+navbar.querySelectorAll('.flow-nav__step').forEach(btn => {
   btn.addEventListener('click', () => goToScreen(parseInt(btn.dataset.screen)));
 });
+navbar.querySelector('.flow-nav__cta').addEventListener('click', () => goToScreen(1));
 
 function goToScreen(index) {
   if (index === currentScreen) return;
   if (screens[currentScreen]) screens[currentScreen].classList.remove('active');
 
-  navbar.querySelectorAll('.navbar__step').forEach((btn, i) => {
-    btn.classList.remove('active');
-    if (i < index) btn.classList.add('completed');
-    if (i === index) btn.classList.add('active');
+  // Steps map to screens 1..4 (Home is no longer in the step rail)
+  navbar.querySelectorAll('.flow-nav__step').forEach((btn) => {
+    const i = parseInt(btn.dataset.screen, 10);
+    btn.classList.remove('is-active', 'is-done');
+    if (i < index)      btn.classList.add('is-done');
+    else if (i === index) btn.classList.add('is-active');
   });
+  // Brand back-link: hide on Home, show on every other screen
+  navbar.querySelector('.flow-nav__brand').classList.toggle('flow-nav__brand--inner', index !== 0);
+  // Toggle CTA visibility — only show on Home as a quick "Start simulation"
+  navbar.querySelector('.flow-nav__cta').style.display = (index === 0) ? '' : 'none';
+  // Dark mode for Simulation stage — flips nav colors via body class
+  document.body.classList.toggle('is-dark', index === 3);
 
   currentScreen = index;
 
