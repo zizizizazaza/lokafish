@@ -59,3 +59,4 @@ Thumbs.db
 
 # Local agent workspace
 .claude/
+*.bak

@@ -320,236 +320,201 @@ function generateDenseKG(w, h) {
 // ─── Main screen creator ─────────────────────────────────────────────────
 export function createAgents(onComplete) {
   const el = document.createElement('div');
-  el.className = 'screen sandbox-screen';
+  el.className = 'screen sandbox-screen sim-v3';
   el.id = 'screen-agents';
 
   const totalAgents = agentCategories.reduce((sum, c) => sum + c.count, 0);
   const modal = createAgentModal();
 
   el.innerHTML = `
-    <!-- LEFT: Knowledge Graph (always visible) -->
+    <!-- LEFT: Knowledge Graph (canvas + chrome unchanged) -->
     <div class="sandbox-left" id="sandbox-left">
-      <div class="sandbox-kg-header">
-        <div class="sandbox-kg-title">
-          <span class="sandbox-kg-dot"></span>
-          Graph Relationship Visualization
-        </div>
-        <div class="sandbox-kg-controls">
-          <button class="sandbox-ctrl-btn" id="kg-refresh-btn" title="Refresh Layout">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/></svg>
-            Refresh
-          </button>
-        </div>
-      </div>
-
       <div class="sandbox-kg-wrap" id="kg-wrap">
         <canvas id="kg-canvas"></canvas>
+
+        <!-- Header (top-left) -->
+        <div class="sandbox-kg-header">
+          <div class="sandbox-kg-title">
+            <span class="sandbox-kg-dot"></span>
+            Knowledge Graph
+          </div>
+          <div class="sim-kg__phase" id="sim-kg-phase">Building world model<span style="opacity:0.5">…</span></div>
+          <div class="sandbox-kg-controls">
+            <button class="sandbox-ctrl-btn" id="kg-refresh-btn" title="Refresh Layout" style="display:none;">Refresh</button>
+          </div>
+        </div>
+
+        <!-- Stats pills (top-right) -->
+        <div class="sandbox-kg-stats" id="kg-stats">
+          <span><b id="kg-node-count">0</b><span>nodes</span></span>
+          <span class="sandbox-stats-sep">·</span>
+          <span><b id="kg-edge-count">0</b><span>edges</span></span>
+          <span><b id="kg-agent-count">0</b><span>agents</span></span>
+        </div>
+
+        <!-- Floating stacked controls (right side) -->
+        <div class="sim-kg__controls">
+          <button class="sim-kg__ctrl" id="kg-zoom-in" title="Zoom in">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
+          <button class="sim-kg__ctrl" id="kg-zoom-out" title="Zoom out">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
+          <button class="sim-kg__ctrl" id="kg-reset" title="Reset">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/></svg>
+          </button>
+        </div>
 
         <!-- Legend bottom-left -->
         <div class="sandbox-kg-legend" id="kg-legend">
           ${Object.entries(DARK_ENTITY_COLORS).map(([t,c]) => `
             <span class="sandbox-legend-item">
-              <span class="sandbox-legend-dot" style="background:${c}"></span>${t}
+              <span class="sandbox-legend-dot" style="background:${c}; color:${c};"></span>${t}
             </span>
           `).join('')}
         </div>
 
-        <!-- Stats top-right -->
-        <div class="sandbox-kg-stats" id="kg-stats">
-          <span id="kg-node-count">0 nodes</span>
-          <span class="sandbox-stats-sep">·</span>
-          <span id="kg-edge-count">0 edges</span>
-        </div>
-
-        <!-- Hint -->
-        <div class="sandbox-kg-hint">Click &amp; drag nodes · Scroll to zoom · Click node for details</div>
+        <!-- Hint bottom-right -->
+        <div class="sandbox-kg-hint">click &amp; drag · scroll to zoom</div>
       </div>
     </div>
 
-    <!-- RIGHT: Phase 1 — Build Panel -->
-    <div class="sandbox-right" id="sandbox-right">
-
-      <!-- ══ PHASE 1: WORLD BUILD ══ -->
-      <div id="phase-build" class="sandbox-phase">
-        <!-- Header -->
-        <div class="sbp-header">
-          <div class="badge badge--blue" style="margin-bottom:8px; font-size:10px;">Phase 1 — World Construction</div>
-          <div class="sbp-title">Building Digital Sandbox</div>
-          <div class="sbp-subtitle">Extracting entities, populating agent demographics, mapping behavior chains</div>
+    <!-- RIGHT: sim panel ─────────────────────────────────────── -->
+    <aside class="sandbox-right" id="sandbox-right">
+      <header class="sim-panel__head">
+        <div class="sim-panel__phase-tag" id="sim-phase-tag">Phase 1 — World construction</div>
+        <h2 class="sim-panel__title" id="sim-panel-title">Building <em>digital sandbox</em></h2>
+        <p class="sim-panel__sub" id="sim-panel-sub">Extracting entities, populating agent demographics, mapping behaviour chains. The graph on the left grows as we go.</p>
+        <div class="sim-panel__progress">
+          <div class="sim-panel__progress-fill" id="sim-progress-fill"></div>
         </div>
+        <div class="sim-panel__progress-meta">
+          <span id="sim-progress-label">Step 1 of 3</span>
+          <span id="sim-progress-pct">0%</span>
+        </div>
+      </header>
 
-        <!-- Build Steps -->
-        <div class="sbp-steps" id="sbp-steps">
-
+      <div class="sim-panel__body" id="sim-panel-body">
+        <!-- ══ PHASE 1: BUILD ══ -->
+        <div id="phase-build">
           <!-- Step 1 -->
-          <div class="sbp-step" id="step-1" data-step="1">
-            <div class="sbp-step-header" id="step-1-hdr">
-              <div class="sbp-step-num active" id="step-1-num">1</div>
-              <div class="sbp-step-info">
-                <div class="sbp-step-name">Knowledge Graph Construction</div>
-                <div class="sbp-step-status" id="step-1-status">Initializing...</div>
+          <div class="sim-bstep is-active is-open" id="step-1" data-step="1">
+            <div class="sim-bstep__header" id="step-1-hdr">
+              <div class="sim-bstep__num" id="step-1-num">1</div>
+              <div class="sim-bstep__info">
+                <div class="sim-bstep__name">Knowledge graph construction</div>
+                <div class="sim-bstep__status" id="step-1-status">Initialising…</div>
               </div>
               <div class="sbp-step-badge" id="step-1-badge"></div>
-              <span class="sbp-step-chevron">
+              <span class="sim-bstep__chev">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
               </span>
             </div>
-            <div class="sbp-step-body" id="step-1-body">
-              <div class="sbp-log" id="kg-log"></div>
+            <div class="sim-bstep__body" id="step-1-body">
+              <div class="sim-bstep__body-inner">
+                <ul class="sim-bstep__log" id="kg-log"></ul>
+              </div>
             </div>
           </div>
 
           <!-- Step 2 -->
-          <div class="sbp-step sbp-step--locked" id="step-2" data-step="2">
-            <div class="sbp-step-header" id="step-2-hdr">
-              <div class="sbp-step-num" id="step-2-num">2</div>
-              <div class="sbp-step-info">
-                <div class="sbp-step-name">Agent Population Generation</div>
-                <div class="sbp-step-status" id="step-2-status">Waiting...</div>
+          <div class="sim-bstep" id="step-2" data-step="2">
+            <div class="sim-bstep__header" id="step-2-hdr">
+              <div class="sim-bstep__num" id="step-2-num">2</div>
+              <div class="sim-bstep__info">
+                <div class="sim-bstep__name">Agent population generation</div>
+                <div class="sim-bstep__status" id="step-2-status">Waiting…</div>
               </div>
               <div class="sbp-step-badge" id="step-2-badge"></div>
-              <span class="sbp-step-chevron">
+              <span class="sim-bstep__chev">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
               </span>
             </div>
-            <div class="sbp-step-body sbp-step-body--collapsed" id="step-2-body">
-              <div class="sbp-counter" id="agent-counter">Preparing agent profiles...</div>
-              <div class="sbp-agent-list" id="agent-list"></div>
+            <div class="sim-bstep__body" id="step-2-body">
+              <div class="sim-bstep__body-inner">
+                <div class="sbp-counter" id="agent-counter">Preparing agent profiles…</div>
+                <div class="sbp-agent-list" id="agent-list"></div>
+              </div>
             </div>
           </div>
 
           <!-- Step 3 -->
-          <div class="sbp-step sbp-step--locked" id="step-3" data-step="3">
-            <div class="sbp-step-header" id="step-3-hdr">
-              <div class="sbp-step-num" id="step-3-num">3</div>
-              <div class="sbp-step-info">
-                <div class="sbp-step-name">Economic Behavior Chain Mapping</div>
-                <div class="sbp-step-status" id="step-3-status">Waiting...</div>
+          <div class="sim-bstep" id="step-3" data-step="3">
+            <div class="sim-bstep__header" id="step-3-hdr">
+              <div class="sim-bstep__num" id="step-3-num">3</div>
+              <div class="sim-bstep__info">
+                <div class="sim-bstep__name">Economic behaviour chain mapping</div>
+                <div class="sim-bstep__status" id="step-3-status">Waiting…</div>
               </div>
               <div class="sbp-step-badge" id="step-3-badge"></div>
-              <span class="sbp-step-chevron">
+              <span class="sim-bstep__chev">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
               </span>
             </div>
-            <div class="sbp-step-body sbp-step-body--collapsed" id="step-3-body">
-              <div class="sbp-chain" id="behavior-chain"></div>
+            <div class="sim-bstep__body" id="step-3-body">
+              <div class="sim-bstep__body-inner">
+                <div class="sbp-chain" id="behavior-chain"></div>
+              </div>
             </div>
           </div>
 
-        </div>
-
-        <!-- Live Stats Bar -->
-        <div class="sbp-stats-bar" id="sbp-stats-bar">
-          <div class="sbp-stat">
+          <!-- Hidden: legacy stats containers JS still writes to. -->
+          <div class="sbp-stats-bar" id="sbp-stats-bar" style="display:none;">
             <div class="sbp-stat-val" id="stat-nodes">0</div>
-            <div class="sbp-stat-key">KG Nodes</div>
-          </div>
-          <div class="sbp-stat">
             <div class="sbp-stat-val" id="stat-edges">0</div>
-            <div class="sbp-stat-key">Edges</div>
-          </div>
-          <div class="sbp-stat">
             <div class="sbp-stat-val" id="stat-agents">0</div>
-            <div class="sbp-stat-key">Agents</div>
-          </div>
-          <div class="sbp-stat">
             <div class="sbp-stat-val" id="stat-accuracy">—</div>
-            <div class="sbp-stat-key">Confidence</div>
           </div>
         </div>
 
-        <!-- CTA -->
-        <div class="sbp-cta" id="sbp-cta" style="opacity:0;pointer-events:none;">
-          <button class="btn btn--primary btn--lg sbp-launch-btn" id="btn-start-sim">
-            Launch Simulation →
-          </button>
-        </div>
-      </div>
-
-      <!-- ══ PHASE 2: SIMULATION FEED ══ -->
-      <div id="phase-sim" class="sandbox-phase" style="display:none;">
-
-        <!-- Stage pipeline tracker -->
-        <div class="sim-stages" id="sim-stages">
-          <div class="sim-stage-step" data-stage="1">
-            <div class="sim-stage-step__dot"></div>
-            <div class="sim-stage-step__name">Ontology</div>
-          </div>
-          <div class="sim-stage-line"></div>
-          <div class="sim-stage-step" data-stage="2">
-            <div class="sim-stage-step__dot"></div>
-            <div class="sim-stage-step__name">Graph build</div>
-          </div>
-          <div class="sim-stage-line"></div>
-          <div class="sim-stage-step" data-stage="3">
-            <div class="sim-stage-step__dot"></div>
-            <div class="sim-stage-step__name">Profiles</div>
-          </div>
-          <div class="sim-stage-line"></div>
-          <div class="sim-stage-step" data-stage="4">
-            <div class="sim-stage-step__dot"></div>
-            <div class="sim-stage-step__name">Simulation</div>
-          </div>
-          <div class="sim-stage-line"></div>
-          <div class="sim-stage-step" data-stage="5">
-            <div class="sim-stage-step__dot"></div>
-            <div class="sim-stage-step__name">Report</div>
-          </div>
-        </div>
-
-        <!-- Top bar -->
-        <div class="sim-topbar">
-          <div class="sim-topbar__left">
-            <div class="sim-topbar__badge">Phase 2 — Simulation</div>
-            <div class="sim-topbar__round">
-              Round <span id="round-counter">0</span> / 120
+        <!-- ══ PHASE 2: SIMULATION ══ -->
+        <div id="phase-sim" style="display:none;">
+          <div class="sim-metrics">
+            <div class="sim-metric">
+              <div class="sim-metric__label">Tourism receipts</div>
+              <div class="sim-metric__value" id="metric-gdp">S$0M</div>
+              <div class="sim-metric__delta is-up" id="metric-gdp-delta">Calculating…</div>
+            </div>
+            <div class="sim-metric">
+              <div class="sim-metric__label">Temp. jobs</div>
+              <div class="sim-metric__value" id="metric-jobs">0</div>
+              <div class="sim-metric__delta is-up" id="metric-jobs-delta">Ramping</div>
+            </div>
+            <div class="sim-metric">
+              <div class="sim-metric__label">Hotel occupancy</div>
+              <div class="sim-metric__value" id="metric-occupancy">75%</div>
+              <div class="sim-metric__delta" id="metric-occ-delta">Baseline</div>
+            </div>
+            <div class="sim-metric">
+              <div class="sim-metric__label">Changi pax (wk)</div>
+              <div class="sim-metric__value" id="metric-flights">175K</div>
+              <div class="sim-metric__delta" id="metric-flights-delta">Monitoring</div>
             </div>
           </div>
-          <div class="sim-topbar__controls">
-            <span class="sim-topbar__speed-label">Speed:</span>
-            <input type="range" min="1" max="10" value="5" id="speed-slider" class="sim-speed-slider" />
-            <span id="speed-label" class="sim-topbar__speed-val">5×</span>
-          </div>
-          <button class="btn btn--sm btn--secondary sim-skip-btn" id="btn-skip-sim">Skip →</button>
-        </div>
 
-        <!-- Decision gate — shown when sim pauses at a user-mode checkpoint -->
-        <div class="sim-dp-gate" id="sim-dp-gate" style="display:none;"></div>
+          <div class="sim-feed-head">
+            <span>Agent feed · live</span>
+            <span><span id="round-counter">0</span>/120</span>
+          </div>
 
-        <!-- Event feed -->
-        <div class="sim-feed" id="sim-feed">
-          <div class="sim-feed__init">
-            <div class="sim-feed__init-dot"></div>
-            <span>Initializing world simulation...</span>
-          </div>
-        </div>
+          <!-- Decision gate (paused) -->
+          <div class="sim-dp-gate" id="sim-dp-gate" style="display:none;"></div>
 
-        <!-- Metrics bar -->
-        <div class="sim-metrics">
-          <div class="sim-metric">
-            <div class="sim-metric__label">TOURISM RECEIPTS</div>
-            <div class="sim-metric__value" style="color:#60A5FA;" id="metric-gdp">S$0M</div>
-            <div class="sim-metric__delta" id="metric-gdp-delta">Calculating...</div>
-          </div>
-          <div class="sim-metric">
-            <div class="sim-metric__label">TEMP. JOBS</div>
-            <div class="sim-metric__value" style="color:#FBBF24;" id="metric-jobs">0</div>
-            <div class="sim-metric__delta" id="metric-jobs-delta">Ramping up</div>
-          </div>
-          <div class="sim-metric">
-            <div class="sim-metric__label">HOTEL OCCUPANCY</div>
-            <div class="sim-metric__value" style="color:#F1F5F9;" id="metric-occupancy">75%</div>
-            <div class="sim-metric__delta" id="metric-occ-delta">Baseline</div>
-          </div>
-          <div class="sim-metric">
-            <div class="sim-metric__label">CHANGI PAX (WK)</div>
-            <div class="sim-metric__value" style="color:#F1F5F9;" id="metric-flights">175K</div>
-            <div class="sim-metric__delta" id="metric-flights-delta">Monitoring</div>
-          </div>
+          <div id="sim-feed"></div>
         </div>
       </div>
 
-    </div>
+      <!-- Footer controls -->
+      <footer class="sim-controls">
+        <button class="sim-control-btn sim-control-btn--ghost" id="btn-skip-sim" style="display:none;">Skip →</button>
+        <div class="sim-speed" id="sim-speed-wrap" style="display:none;">
+          <span>Speed</span>
+          <input type="range" min="1" max="10" value="5" id="speed-slider"/>
+          <span id="speed-label">5×</span>
+        </div>
+        <button class="sim-control-btn sim-control-btn--primary" id="btn-start-sim" style="margin-left:auto;">Launch simulation →</button>
+      </footer>
+    </aside>
   `;
 
   // ── Build agent rows ──────────────────────────────────────────────────
@@ -608,14 +573,25 @@ export function createAgents(onComplete) {
   el.querySelector('#btn-skip-sim').addEventListener('click', onComplete);
 
   // ── Launch Simulation button → switch to Phase 2 ─────────────────────
-  el.querySelector('#btn-start-sim').addEventListener('click', () => {
+  const launchBtn = el.querySelector('#btn-start-sim');
+  // Initially disabled until phase 1 completes.
+  launchBtn.disabled = true;
+  launchBtn.style.opacity = '0.45';
+  launchBtn.style.pointerEvents = 'none';
+  launchBtn.addEventListener('click', () => {
+    if (launchBtn.disabled) return;
     el._runSimulation();
   });
 
-  // ── Refresh KG button ─────────────────────────────────────────────────
-  el.querySelector('#kg-refresh-btn').addEventListener('click', () => {
-    if (el._rebuildKG) el._rebuildKG();
-  });
+  // ── KG controls (zoom in / out / reset) ───────────────────────────────
+  const refreshLegacy = el.querySelector('#kg-refresh-btn');
+  if (refreshLegacy) refreshLegacy.addEventListener('click', () => { el._rebuildKG && el._rebuildKG(); });
+  const resetBtn = el.querySelector('#kg-reset');
+  if (resetBtn)  resetBtn.addEventListener('click', () => { el._resetKG ? el._resetKG() : (el._rebuildKG && el._rebuildKG()); });
+  const zoomInBtn  = el.querySelector('#kg-zoom-in');
+  const zoomOutBtn = el.querySelector('#kg-zoom-out');
+  if (zoomInBtn)  zoomInBtn.addEventListener('click',  () => el._zoomKG && el._zoomKG(1.18));
+  if (zoomOutBtn) zoomOutBtn.addEventListener('click', () => el._zoomKG && el._zoomKG(1/1.18));
 
   // ── Panel toggle button (collapse / expand right panel) ──────────────
   const leftPanel  = el.querySelector('.sandbox-left');
@@ -641,8 +617,7 @@ export function createAgents(onComplete) {
     const step = el.querySelector(`#step-${n}`);
     if (!hdr || !body) return;
     hdr.addEventListener('click', () => {
-      const collapsed = body.classList.toggle('sbp-step-body--collapsed');
-      step.classList.toggle('sbp-step--collapsed', collapsed);
+      step.classList.toggle('is-open');
     });
   });
 
@@ -1016,13 +991,35 @@ export function createAgents(onComplete) {
     phaseBuild.style.display = 'none';
 
     // Slide in simulation panel
-    phaseSim.style.display = 'flex';
+    phaseSim.style.display = 'block';
     phaseSim.style.opacity = '0';
     phaseSim.style.transform = 'translateX(-20px)';
     phaseSim.style.transition = 'opacity 0.35s ease, transform 0.35s ease';
     await delay(20);
     phaseSim.style.opacity = '1';
     phaseSim.style.transform = 'translateX(0)';
+
+    // Update header chrome to reflect phase 2
+    const phaseTag  = el.querySelector('#sim-phase-tag');
+    const panelTitle = el.querySelector('#sim-panel-title');
+    const panelSub   = el.querySelector('#sim-panel-sub');
+    const progFill   = el.querySelector('#sim-progress-fill');
+    const progLbl    = el.querySelector('#sim-progress-label');
+    const progPct    = el.querySelector('#sim-progress-pct');
+    if (phaseTag)   phaseTag.textContent  = 'Phase 2 — Multi-agent simulation';
+    if (panelTitle) panelTitle.innerHTML  = 'Running <em>simulation</em>';
+    if (panelSub)   panelSub.textContent  = 'Agents interact across 120 rounds. Behaviours feed Input-Output, CGE & Monte Carlo aggregation in real time.';
+    if (progFill)   progFill.style.width  = '0%';
+    if (progLbl)    progLbl.textContent   = 'Round 0 of 120';
+    if (progPct)    progPct.textContent   = '0%';
+
+    // Show speed + skip controls; hide launch
+    const skipBtn   = el.querySelector('#btn-skip-sim');
+    const speedWrap = el.querySelector('#sim-speed-wrap');
+    const startBtn  = el.querySelector('#btn-start-sim');
+    if (skipBtn)   skipBtn.style.display   = '';
+    if (speedWrap) speedWrap.style.display = '';
+    if (startBtn)  startBtn.style.display  = 'none';
 
     await delay(400);
 
@@ -1101,6 +1098,14 @@ export function createAgents(onComplete) {
       const post     = simulationPosts[i];
       const roundNum = Math.round(((i + 1) / simulationPosts.length) * 120);
       roundEl.textContent = roundNum;
+      // Sync the editorial progress bar in the header.
+      const _pf = el.querySelector('#sim-progress-fill');
+      const _pl = el.querySelector('#sim-progress-label');
+      const _pp = el.querySelector('#sim-progress-pct');
+      const _frac = roundNum / 120;
+      if (_pf) _pf.style.width = (_frac * 100).toFixed(1) + '%';
+      if (_pl) _pl.textContent = `Round ${roundNum} of 120`;
+      if (_pp) _pp.textContent = Math.round(_frac * 100) + '%';
 
       // ── Stage tracker update ──
       const pct = (i + 1) / simulationPosts.length;
@@ -1296,11 +1301,27 @@ export function createAgents(onComplete) {
     completeStep(el, 3, '✓ Complete');
     await delay(300);
 
-    // Show CTA
-    const cta = el.querySelector('#sbp-cta');
-    cta.style.transition = 'opacity 0.4s ease';
-    cta.style.opacity = '1';
-    cta.style.pointerEvents = 'auto';
+    // Phase 1 done — flag the launch button as primed.
+    const btn = el.querySelector('#btn-start-sim');
+    if (btn) {
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.style.pointerEvents = 'auto';
+      btn.classList.add('is-ready');
+    }
+    // Update header for "ready to launch" state.
+    const phaseTag2  = el.querySelector('#sim-phase-tag');
+    const panelTitle2 = el.querySelector('#sim-panel-title');
+    const panelSub2   = el.querySelector('#sim-panel-sub');
+    const fill2 = el.querySelector('#sim-progress-fill');
+    const lbl2  = el.querySelector('#sim-progress-label');
+    const pct2  = el.querySelector('#sim-progress-pct');
+    if (phaseTag2)   phaseTag2.textContent = 'Phase 1 — Ready';
+    if (panelTitle2) panelTitle2.innerHTML = '<em>Sandbox</em> ready';
+    if (panelSub2)   panelSub2.textContent = 'World model assembled. Launch to begin the multi-agent simulation.';
+    if (fill2) fill2.style.width = '100%';
+    if (lbl2)  lbl2.textContent  = 'Build complete';
+    if (pct2)  pct2.textContent  = '100%';
   };
 
   /**
@@ -1365,309 +1386,128 @@ export function createAgents(onComplete) {
 // ─── Step helpers ─────────────────────────────────────────────────────────
 function unlockStep(el, n) {
   const step = el.querySelector(`#step-${n}`);
-  const body = el.querySelector(`#step-${n}-body`);
-  const num  = el.querySelector(`#step-${n}-num`);
   const stat = el.querySelector(`#step-${n}-status`);
-  step.classList.remove('sbp-step--locked');
-  body.classList.remove('sbp-step-body--collapsed');
-  num.classList.add('active');
-  stat.textContent = 'Building...';
-  stat.style.color = '#FBBF24';
+  step.classList.remove('is-done');
+  step.classList.add('is-active', 'is-open');
+  stat.textContent = 'Building…';
+  // Update progress bar (n=1 → 0%, 2 → 33%, 3 → 66%)
+  const fill  = el.querySelector('#sim-progress-fill');
+  const lbl   = el.querySelector('#sim-progress-label');
+  const pct   = el.querySelector('#sim-progress-pct');
+  if (fill && lbl && pct) {
+    const p = Math.round(((n - 1) / 3) * 100);
+    fill.style.width = p + '%';
+    lbl.textContent = `Step ${n} of 3`;
+    pct.textContent = p + '%';
+  }
 }
 
 function completeStep(el, n, label) {
+  const step  = el.querySelector(`#step-${n}`);
   const stat  = el.querySelector(`#step-${n}-status`);
-  const badge = el.querySelector(`#step-${n}-badge`);
-  const num   = el.querySelector(`#step-${n}-num`);
-  stat.textContent = '';
-  num.classList.remove('active');
-  num.classList.add('done');
-  badge.innerHTML = `<span class="sbp-complete-badge">✓ Complete</span>`;
+  step.classList.remove('is-active');
+  step.classList.add('is-done');
+  // Auto-collapse completed step so the next one becomes the focus.
+  step.classList.remove('is-open');
+  stat.textContent = '✓ Complete';
+  // Bump the progress bar to reflect this step finishing.
+  const fill = el.querySelector('#sim-progress-fill');
+  const pct  = el.querySelector('#sim-progress-pct');
+  if (fill && pct) {
+    const p = Math.round((n / 3) * 100);
+    fill.style.width = p + '%';
+    pct.textContent = p + '%';
+  }
 }
 
 // ─── KG Canvas Setup ─────────────────────────────────────────────────────
 async function setupKG(el, modal) {
-  const canvas  = el.querySelector('#kg-canvas');
   const wrapper = el.querySelector('.sandbox-kg-wrap');
+  const canvas  = el.querySelector('#kg-canvas');
+  // 3d-force-graph manages its own renderer/canvas, so swap the legacy
+  // <canvas> for an empty <div> host with the same id.
+  const host = document.createElement('div');
+  host.id = 'kg-canvas';
+  host.style.cssText = 'position:absolute;inset:0;width:100%;height:100%';
+  if (canvas) canvas.replaceWith(host); else wrapper.appendChild(host);
 
-  await delay(80);
+  const { mount3DGraph } = await import('./kg-3d.js');
 
-  const dpr = Math.min(devicePixelRatio, 2);
-  const ctx = canvas.getContext('2d');
-  let W = 800, H = 600;
-
-  function sizeCanvas() {
-    W = wrapper.clientWidth  || 800;
-    H = wrapper.clientHeight || 600;
-    canvas.width  = Math.round(W * dpr);
-    canvas.height = Math.round(H * dpr);
-  }
-  sizeCanvas();
-
-  let nodes = [], edges = [], nodeMap = {};
-  let visibleCount = 0;
-
-  function rebuildGraph() {
-    // Prefer the real Zep graph if a project has been loaded; otherwise
-    // fall back to the procedural mock so demo mode still looks alive.
+  // Data producer — Cosmograph asks for it on every rebuild. We respect
+  // customGraphData (real Zep payload from a loaded project) and fall
+  // back to the procedural mock so demo mode stays alive.
+  function produceData() {
+    const W = wrapper.clientWidth || 800;
+    const H = wrapper.clientHeight || 600;
     const fromCustom = customGraphData ? buildKgFromCustomGraph(customGraphData, W, H) : null;
-    const data = fromCustom && fromCustom.nodes.length
-      ? fromCustom
-      : generateDenseKG(W, H);
-    nodes = data.nodes;
-    edges = data.edges;
-    nodeMap = {};
-    nodes.forEach(n => nodeMap[n.id] = n);
-    visibleCount = 0;
+    const data = fromCustom && fromCustom.nodes.length ? fromCustom : generateDenseKG(W, H);
+    return { nodes: data.nodes, edges: data.edges };
+  }
+
+  const cosmos = mount3DGraph(host, modal, produceData);
+
+  // Live counts that follow the growth animation (not the final dataset).
+  let liveNodeCount = 0;
+  let liveEdgeCount = 0;
+  function paintStats() {
     const nc = el.querySelector('#kg-node-count');
     const ec = el.querySelector('#kg-edge-count');
-    if (nc) nc.textContent = nodes.length + ' nodes';
-    if (ec) ec.textContent = edges.length + ' edges';
+    const ac = el.querySelector('#kg-agent-count');
+    if (nc) nc.textContent = liveNodeCount;
+    if (ec) ec.textContent = liveEdgeCount;
+    // Keep the agent badge tracking the final personae count so the
+    // right-panel summary still reads correctly.
+    const data = produceData();
+    if (ac) ac.textContent = data.nodes.filter(n => n.type === 'Person').length || 0;
   }
-  rebuildGraph();
+  paintStats();
 
-  const ro = new ResizeObserver(() => { sizeCanvas(); rebuildGraph(); });
+  // Kick off the growth animation. Stats + KG phase chip update live.
+  function startGrowth(durationMs) {
+    cosmos.grow({
+      totalDurationMs: durationMs ?? 9000,
+      seedCount: 8,
+      batchInterval: 200,
+      onProgress: (p, nShown, eShown) => {
+        liveNodeCount = nShown;
+        liveEdgeCount = eShown;
+        paintStats();
+        const phaseEl = el.querySelector('#sim-kg-phase');
+        if (phaseEl) {
+          if (p < 1) {
+            phaseEl.innerHTML = `Building world model<span style="opacity:0.5">…</span>`;
+          } else {
+            phaseEl.textContent = 'World model assembled';
+          }
+        }
+      },
+    });
+  }
+  // Auto-start growth as soon as KG mounts. Phase 1 build lasts ~9s
+  // which lines up with the existing 3-step status animation.
+  startGrowth();
+  el._startKgGrowth = startGrowth;
+
+  // Public rebuild fn — used by the Refresh button and by the
+  // _loadProject hook to swap in a real graph once it's fetched.
+  // Re-runs the growth animation from scratch on the new data.
+  function rebuildKG() {
+    syncCanvasSize();
+    liveNodeCount = 0;
+    liveEdgeCount = 0;
+    paintStats();
+    startGrowth();
+  }
+
+  // Resize tracking — Cosmograph handles its own canvas sizing once
+  // mounted, but we still want to refit when the panel is collapsed /
+  // expanded.
+  const ro = new ResizeObserver(() => { syncCanvasSize(); });
   ro.observe(wrapper);
 
-  // ── Interaction ──
-  let dragging = null, offsetX = 0, offsetY = 0;
-  let zoom = 1, panX = 0, panY = 0;
-  let hoveredNode = null, lastDownNode = null;
+  // Expose programmatic zoom for the +/- buttons in the chrome.
+  el._zoomKG  = (factor) => cosmos.zoom(factor);
+  el._resetKG = () => cosmos.reset();
 
-  function getCssPt(e) {
-    const r = canvas.getBoundingClientRect();
-    return { cx: e.clientX - r.left, cy: e.clientY - r.top };
-  }
-  function cssToWorld(cx, cy) {
-    return { x: (cx - panX) / zoom, y: (cy - panY) / zoom };
-  }
-  function findNode(wx, wy) {
-    for (let i = 0; i < Math.min(12, nodes.length); i++) {
-      const n = nodes[i];
-      if ((wx-n.x)**2 + (wy-n.y)**2 < (n.size+8)**2) return n;
-    }
-    for (let i = 12; i < nodes.length; i++) {
-      const n = nodes[i];
-      if ((wx-n.x)**2 + (wy-n.y)**2 < (n.size+5)**2) return n;
-    }
-    return null;
-  }
-
-  canvas.addEventListener('mousedown', e => {
-    const {cx,cy} = getCssPt(e);
-    const {x,y}   = cssToWorld(cx,cy);
-    const node    = findNode(x,y);
-    lastDownNode  = node;
-    if (node) { dragging=node; offsetX=x-node.x; offsetY=y-node.y; canvas.style.cursor='grabbing'; }
-  });
-  canvas.addEventListener('mousemove', e => {
-    const {cx,cy} = getCssPt(e);
-    const {x,y}   = cssToWorld(cx,cy);
-    if (dragging) { dragging.x=x-offsetX; dragging.y=y-offsetY; }
-    else { hoveredNode=findNode(x,y); canvas.style.cursor=hoveredNode?'pointer':'default'; }
-  });
-  canvas.addEventListener('mouseup', e => {
-    if (dragging) {
-      const {cx,cy}=getCssPt(e); const {x,y}=cssToWorld(cx,cy);
-      const dx=x-(dragging.x+offsetX), dy=y-(dragging.y+offsetY);
-      if (Math.abs(dx)<4&&Math.abs(dy)<4&&lastDownNode===dragging)
-        showNodeDetail(modal,dragging,edges,nodes);
-      dragging=null; canvas.style.cursor='default';
-    }
-  });
-  canvas.addEventListener('wheel', e => {
-    e.preventDefault();
-    const {cx,cy}=getCssPt(e);
-    const f=e.deltaY>0?0.92:1.08;
-    const nz=Math.max(0.2,Math.min(5,zoom*f));
-    panX=cx-(cx-panX)*(nz/zoom); panY=cy-(cy-panY)*(nz/zoom); zoom=nz;
-  }, {passive:false});
-
-  // ── Signal pulses — use the real core edges for animation ──
-  const CORE_PULSE_PAIRS = [
-    ['ts','venue'],['ts','fans'],['ts','changi'],['ts','bloomberg'],
-    ['fans','mbs'],['fans','grab'],['fans','airlines'],['fans','sg'],
-    ['airlines','changi'],['stb','mti'],['stb','sg'],
-    ['dbs','mbs'],['changi','sg'],['venue','stb'],
-  ];
-  const pulses = [];
-  let lastPulseSpawn = 0;
-
-  // ── Draw loop ──
-  function draw() {
-    ctx.setTransform(dpr,0,0,dpr,0,0);
-    ctx.clearRect(0,0,W,H);
-    ctx.save();
-    ctx.translate(panX,panY);
-    ctx.scale(zoom,zoom);
-
-    const showN = Math.min(visibleCount,nodes.length);
-    if (visibleCount<nodes.length) visibleCount+=28;
-    const time = performance.now()/1000;
-
-    // Animate non-core node drift
-    for (let i=12; i<showN; i++) {
-      const n = nodes[i];
-      if (n === dragging) continue;
-      n.x = n.baseX + Math.sin(time * n.driftFreqX + n.driftPhaseX) * n.driftAmp;
-      n.y = n.baseY + Math.cos(time * n.driftFreqY + n.driftPhaseY) * n.driftAmp;
-    }
-    // Core nodes: subtle micro-drift
-    for (let i=0; i<Math.min(12,showN); i++) {
-      const n = nodes[i];
-      if (n === dragging) continue;
-      if (!n.baseX) { n.baseX = n.x; n.baseY = n.y; }
-      n.x = n.baseX + Math.sin(time * 0.18 + i * 0.9) * 2.5;
-      n.y = n.baseY + Math.cos(time * 0.14 + i * 0.7) * 2.5;
-    }
-
-    // Spawn signal pulses along core relationship edges
-    if (time - lastPulseSpawn > 0.12 && pulses.length < 40) {
-      lastPulseSpawn = time;
-      const e = CORE_PULSE_PAIRS[Math.floor(Math.random() * CORE_PULSE_PAIRS.length)];
-      const from = nodeMap[e[0]], to = nodeMap[e[1]];
-      if (from && to) {
-        pulses.push({
-          fromId: e[0], toId: e[1],
-          t: 0,
-          speed: 0.006 + Math.random() * 0.009,
-          color: from.color,
-          size:  2.5 + Math.random() * 2,
-        });
-      }
-    }
-
-    // Edges
-    for (let i=0;i<edges.length;i++) {
-      const edge = edges[i];
-      const a=nodeMap[edge.from],b=nodeMap[edge.to];
-      if (!a||!b) continue;
-      const ai=nodes.indexOf(a),bi=nodes.indexOf(b);
-      if (ai>=showN||bi>=showN) continue;
-      const bothCore = ai<12 && bi<12;
-      const core = ai<12 || bi<12;
-      ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y);
-      ctx.strokeStyle=bothCore?'rgba(96,165,250,0.42)':core?'rgba(96,165,250,0.16)':'rgba(148,163,184,0.055)';
-      ctx.lineWidth  =bothCore?1.5:core?0.8:0.4;
-      ctx.stroke();
-
-      // Relationship label pill — only on core-to-core edges, zoom-aware
-      if (bothCore && edge.label && zoom > 0.55) {
-        const mx = (a.x + b.x) / 2;
-        const my = (a.y + b.y) / 2;
-        ctx.font = '500 8px Inter, sans-serif';
-        ctx.textAlign  = 'center';
-        ctx.textBaseline = 'middle';
-        const tw = ctx.measureText(edge.label).width;
-        const pad = 4;
-        ctx.fillStyle = 'rgba(10,18,35,0.84)';
-        const rr = 4;
-        const px = mx - tw/2 - pad, py = my - 7, pw = tw + pad*2, ph = 14;
-        ctx.beginPath();
-        ctx.moveTo(px+rr,py); ctx.lineTo(px+pw-rr,py);
-        ctx.arcTo(px+pw,py,px+pw,py+rr,rr);
-        ctx.lineTo(px+pw,py+ph-rr);
-        ctx.arcTo(px+pw,py+ph,px+pw-rr,py+ph,rr);
-        ctx.lineTo(px+rr,py+ph);
-        ctx.arcTo(px,py+ph,px,py+ph-rr,rr);
-        ctx.lineTo(px,py+rr);
-        ctx.arcTo(px,py,px+rr,py,rr);
-        ctx.closePath();
-        ctx.fill();
-        ctx.fillStyle = 'rgba(148,163,184,0.90)';
-        ctx.fillText(edge.label, mx, my);
-        ctx.textBaseline = 'alphabetic';
-      }
-    }
-
-    // Signal pulses
-    for (let i = pulses.length - 1; i >= 0; i--) {
-      const p = pulses[i];
-      p.t += p.speed;
-      if (p.t >= 1) { pulses.splice(i, 1); continue; }
-      const from = nodeMap[p.fromId], to = nodeMap[p.toId];
-      if (!from || !to) { pulses.splice(i, 1); continue; }
-      const px = from.x + (to.x - from.x) * p.t;
-      const py = from.y + (to.y - from.y) * p.t;
-      const alpha = Math.sin(p.t * Math.PI);
-      const g = ctx.createRadialGradient(px,py,0,px,py,p.size*2.5);
-      g.addColorStop(0, p.color + 'FF');
-      g.addColorStop(0.4, p.color + '99');
-      g.addColorStop(1, 'transparent');
-      ctx.beginPath();
-      ctx.arc(px,py,p.size*2.5,0,Math.PI*2);
-      ctx.fillStyle = g;
-      ctx.globalAlpha = alpha;
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.beginPath();
-      ctx.arc(px,py,p.size*0.6,0,Math.PI*2);
-      ctx.fillStyle = '#FFFFFF';
-      ctx.globalAlpha = alpha * 0.9;
-      ctx.fill();
-      ctx.globalAlpha = 1;
-    }
-
-    // Nodes
-    for (let i=0;i<showN;i++) {
-      const n=nodes[i];
-      const isCore=i<12, isHov=n===hoveredNode, isDrag=n===dragging;
-      const pulse=isCore?Math.sin(time*1.35+i*0.65)*0.9:0;
-      const r=n.size+pulse+(isHov&&!isDrag?3:0);
-
-      if (isCore) {
-        const g=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,r*3.5);
-        g.addColorStop(0,n.color+'55'); g.addColorStop(1,'transparent');
-        ctx.beginPath(); ctx.arc(n.x,n.y,r*3.5,0,Math.PI*2);
-        ctx.fillStyle=g; ctx.fill();
-      }
-
-      ctx.beginPath(); ctx.arc(n.x,n.y,r,0,Math.PI*2);
-      ctx.fillStyle=isCore?n.color+'EE':n.color+(isHov?'CC':'55');
-      ctx.fill();
-
-      if (isHov||isDrag) {
-        ctx.beginPath(); ctx.arc(n.x,n.y,r+3.5,0,Math.PI*2);
-        ctx.strokeStyle=n.color+'BB'; ctx.lineWidth=1.8; ctx.stroke();
-      }
-
-      // Node labels: always for core; for satellite show on hover
-      if (isCore) {
-        ctx.font='600 10px Inter,sans-serif';
-        ctx.fillStyle='rgba(226,232,240,0.90)';
-        ctx.textAlign='center';
-        ctx.textBaseline='alphabetic';
-        ctx.fillText(n.label,n.x,n.y+r+13);
-      } else if (isHov) {
-        // Satellite hover tooltip
-        ctx.font='500 9px Inter,sans-serif';
-        ctx.textAlign='center';
-        ctx.textBaseline='middle';
-        const tw=ctx.measureText(n.label).width;
-        const pad=4, th=14;
-        const lx=n.x, ly=n.y-r-10;
-        ctx.fillStyle='rgba(10,18,35,0.90)';
-        ctx.beginPath();
-        const rr=3, px2=lx-tw/2-pad, py2=ly-th/2;
-        ctx.moveTo(px2+rr,py2); ctx.lineTo(px2+tw+pad*2-rr,py2);
-        ctx.arcTo(px2+tw+pad*2,py2,px2+tw+pad*2,py2+rr,rr);
-        ctx.lineTo(px2+tw+pad*2,py2+th-rr);
-        ctx.arcTo(px2+tw+pad*2,py2+th,px2+tw+pad*2-rr,py2+th,rr);
-        ctx.lineTo(px2+rr,py2+th);
-        ctx.arcTo(px2,py2+th,px2,py2+th-rr,rr);
-        ctx.lineTo(px2,py2+rr);
-        ctx.arcTo(px2,py2,px2+rr,py2,rr);
-        ctx.closePath();
-        ctx.fill();
-        ctx.fillStyle=n.color;
-        ctx.fillText(n.label,lx,ly);
-        ctx.textBaseline='alphabetic';
-      }
-    }
-    ctx.restore();
-    requestAnimationFrame(draw);
-  }
-  draw();
-
-  return { rebuildKG: rebuildGraph, nodeCount: nodes.length, edgeCount: edges.length };
+  return { rebuildKG, nodeCount: produceData().nodes.length, edgeCount: produceData().edges.length };
 }

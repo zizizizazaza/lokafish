@@ -124,12 +124,17 @@ button { font-family: var(--font-sans); cursor: pointer; border: none; outline: 
   width: 100%;
   min-height: 100vh;
   display: none !important;
-  opacity: 0;
+  opacity: 1; /* don't gate on opacity — `display:none` is enough */
 }
 .screen.active {
   display: block !important;
   opacity: 1;
-  animation: fadeIn 0.3s ease forwards;
+  /* No keyframe animation here — some browsers pause CSS animations
+     when the tab is in the background, which left the element stuck
+     at opacity:0 and produced a "blank page until DevTools opens" bug.
+     A simple transition still gives a smooth fade when the user
+     navigates between screens. */
+  transition: opacity 0.3s ease;
 }
 /* Sandbox screen (Simulation) — keeps the original split-layout engine.
    ID selector beats class+class so it overrides .screen.active block. */
@@ -6053,7 +6058,8 @@ button { font-family: var(--font-sans); cursor: pointer; border: none; outline: 
 .flow-screen ::selection { background: var(--flow-fg); color: var(--flow-bg); }
 .flow-screen a { color: inherit; text-decoration: none; }
 .flow-screen button { font-family: inherit; cursor: pointer; }
-.flow-screen textarea, .flow-screen input, .flow-screen select { font-family: inherit; color: inherit; background: transparent; border: none; outline: none; }
+.flow-screen textarea, .flow-screen input, .flow-screen select:not(.sc-select) { font-family: inherit; color: inherit; background: transparent; border: none; outline: none; }
+.flow-screen .sc-select { font-family: 'Inter Tight', sans-serif; }
 
 /* ── flow stage container ── */
 .flow-stage {
@@ -6158,14 +6164,15 @@ button { font-family: var(--font-sans); cursor: pointer; border: none; outline: 
 .sc-select-wrap { position: relative; }
 .sc-select-wrap::after { content: '▾'; position: absolute; right: 14px; top: 50%; transform: translateY(-50%); color: var(--flow-muted); pointer-events: none; font-size: 0.8rem; }
 .sc-select {
-  -webkit-appearance: none; appearance: none;
+  -webkit-appearance: none; -moz-appearance: none; appearance: none;
   width: 100%; font-family: 'Inter Tight', sans-serif; font-size: 0.95rem; color: var(--flow-fg);
-  border: 1px solid var(--flow-line-strong); background: var(--flow-bg);
-  border-radius: var(--flow-r-sm); padding: 11px 36px 11px 14px; cursor: pointer;
+  border: 1px solid rgba(26,26,26,0.45); background: var(--flow-bg);
+  border-radius: var(--flow-r-md); padding: 12px 36px 12px 14px; cursor: pointer;
+  outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .sc-select:hover { border-color: var(--flow-fg); }
-.sc-select:focus { border-color: var(--flow-accent); box-shadow: 0 0 0 3px var(--flow-accent-soft); }
+.sc-select:focus, .sc-select:focus-visible { border-color: var(--flow-accent); box-shadow: 0 0 0 3px var(--flow-accent-soft); }
 
 .sc-checkboxes { display: flex; flex-direction: column; gap: 10px; }
 .sc-check {
@@ -6689,9 +6696,10 @@ button { font-family: var(--font-sans); cursor: pointer; border: none; outline: 
 .flow-nav__cta:hover { background: #000; }
 
 /* Dark adaptation when sim stage is active */
+body.is-dark { background: #0a0a0c; }
 body.is-dark .flow-nav {
-  background: rgba(10,10,12,0.88);
-  border-bottom-color: rgba(232,233,236,0.08);
+  background: #0a0a0c;
+  border-bottom-color: transparent;
   color: #e8e9ec;
 }
 body.is-dark .flow-nav__brand,
@@ -6713,3 +6721,609 @@ body.is-dark .flow-nav__cta:hover { background: #fff; }
 /* Hide flow-nav on landing — landing has its own .lv3-nav */
 #screen-landing.active ~ .flow-nav { display: none; }
 .flow-nav.is-hidden { display: none; }
+
+
+/* ─────────────────────────────────────────────────────────────────
+   SIMULATION SCREEN — v3 (standalone import)
+   Replicates the visual language from the standalone Lokafish Flow
+   reference: editorial dark, vermilion accent, serif italic numerals,
+   mono labels. Scoped under #screen-agents.sim-v3 so it never bleeds
+   into other screens. The KG canvas + click modal are unchanged
+   (DOM still rendered by the existing agents.js logic).
+   ───────────────────────────────────────────────────────────────── */
+#screen-agents.sim-v3:not(.active) {
+  display: none !important;
+}
+#screen-agents.sim-v3 {
+  --sim3-bg:          #0a0a0c;
+  --sim3-bg-2:        #0f1014;
+  --sim3-bg-3:        #15171c;
+  --sim3-fg:          #e8e9ec;
+  --sim3-fg-soft:     #c5c8cf;
+  --sim3-muted:       rgba(232,233,236,0.55);
+  --sim3-muted-soft:  rgba(232,233,236,0.32);
+  --sim3-line:        rgba(232,233,236,0.08);
+  --sim3-line-strong: rgba(232,233,236,0.16);
+  --sim3-accent:      #ea5a2c;
+  --sim3-accent-soft: rgba(234,90,44,0.18);
+  --sim3-emerald:     #34d399;
+  --sim3-rose:        #f87171;
+  --sim3-cyan:        #38bdf8;
+  --sim3-amber:       #fbbf24;
+  --sim3-violet:      #a78bfa;
+  --sim3-r-sm: 8px;
+  --sim3-r-md: 12px;
+  --sim3-font-serif: 'Source Serif 4','Source Serif Pro', Georgia, serif;
+  --sim3-font-sans:  'Inter Tight','Inter', system-ui, sans-serif;
+  --sim3-font-mono:  'JetBrains Mono', ui-monospace, monospace;
+
+  background: var(--sim3-bg);
+  color: var(--sim3-fg);
+  font-family: var(--sim3-font-sans);
+
+  /* Override the legacy flex-row layout — go grid for crisp 2-col split. */
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) 460px;
+  grid-template-rows: 1fr;
+  height: calc(100vh - 56px);
+  margin-top: 56px;
+  overflow: hidden;
+}
+
+/* ── LEFT: KG canvas chrome ──────────────────────────────────── */
+#screen-agents.sim-v3 .sandbox-left {
+  position: relative;
+  background:
+    radial-gradient(ellipse at 30% 30%, rgba(234,90,44,0.07), transparent 55%),
+    radial-gradient(ellipse at 70% 75%, rgba(56,189,248,0.05), transparent 55%),
+    var(--sim3-bg);
+  border-right: 1px solid var(--sim3-line);
+  overflow: hidden;
+  flex: none;
+  padding: 0;
+  display: block;
+  border-right: 1px solid var(--sim3-line);
+}
+#screen-agents.sim-v3 .sandbox-kg-wrap {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+}
+#screen-agents.sim-v3 #kg-canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  display: block;
+}
+
+/* Header (top-left) */
+#screen-agents.sim-v3 .sandbox-kg-header {
+  position: absolute;
+  top: 24px; left: 28px;
+  display: flex; align-items: center; gap: 14px;
+  z-index: 5;
+  padding: 0; border: none; background: none;
+}
+#screen-agents.sim-v3 .sandbox-kg-title {
+  font-family: var(--sim3-font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  color: var(--sim3-muted);
+  display: inline-flex; align-items: center; gap: 10px;
+  text-transform: none;
+  font-weight: 400;
+}
+#screen-agents.sim-v3 .sandbox-kg-dot {
+  width: 8px; height: 8px;
+  background: var(--sim3-emerald);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--sim3-emerald);
+  animation: sim3-pulse-emerald 1.6s infinite;
+}
+@keyframes sim3-pulse-emerald {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+#screen-agents.sim-v3 .sandbox-kg-controls {
+  /* hide the legacy inline Refresh button — replaced by stacked controls */
+  display: none;
+}
+
+/* Stats pills (top-right) */
+#screen-agents.sim-v3 .sandbox-kg-stats {
+  position: absolute;
+  top: 24px; right: 28px;
+  display: flex; gap: 10px;
+  z-index: 5;
+  padding: 0; background: none; border: none;
+}
+#screen-agents.sim-v3 .sandbox-kg-stats > span {
+  font-family: var(--sim3-font-mono);
+  font-size: 0.72rem;
+  color: var(--sim3-fg-soft);
+  background: rgba(232,233,236,0.04);
+  border: 1px solid var(--sim3-line);
+  padding: 6px 12px;
+  border-radius: 999px;
+  backdrop-filter: blur(8px);
+  display: inline-flex; gap: 4px;
+}
+#screen-agents.sim-v3 .sandbox-stats-sep { display: none; }
+
+/* Legend (bottom-left) */
+#screen-agents.sim-v3 .sandbox-kg-legend {
+  position: absolute;
+  bottom: 24px; left: 28px;
+  display: flex; flex-wrap: wrap; gap: 14px;
+  z-index: 5;
+  background: rgba(10,10,12,0.6);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--sim3-line);
+  border-radius: var(--sim3-r-md);
+  padding: 10px 14px;
+}
+#screen-agents.sim-v3 .sandbox-legend-item {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: var(--sim3-font-sans);
+  font-size: 0.78rem;
+  color: var(--sim3-fg-soft);
+}
+#screen-agents.sim-v3 .sandbox-legend-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 6px currentColor;
+}
+
+/* Hint (bottom-right of canvas area) */
+#screen-agents.sim-v3 .sandbox-kg-hint {
+  position: absolute;
+  bottom: 28px; right: 28px;
+  font-family: var(--sim3-font-mono);
+  font-size: 0.7rem;
+  color: var(--sim3-muted-soft);
+  z-index: 5;
+}
+
+/* Stacked KG controls (zoom in/out/reset) */
+#screen-agents.sim-v3 .sim-kg__controls {
+  position: absolute;
+  bottom: 80px; right: 28px;
+  display: flex; flex-direction: column; gap: 6px;
+  z-index: 5;
+}
+#screen-agents.sim-v3 .sim-kg__ctrl {
+  width: 36px; height: 36px;
+  background: rgba(10,10,12,0.6);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--sim3-line-strong);
+  border-radius: var(--sim3-r-sm);
+  color: var(--sim3-fg-soft);
+  display: grid; place-items: center;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+#screen-agents.sim-v3 .sim-kg__ctrl:hover {
+  border-color: var(--sim3-accent);
+  color: var(--sim3-accent);
+}
+
+/* ── RIGHT: sim panel ───────────────────────────────────────── */
+#screen-agents.sim-v3 .sandbox-right {
+  width: 100%;
+  background: var(--sim3-bg-2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--sim3-line);
+  padding: 0;
+}
+#screen-agents.sim-v3 .sim-panel__head {
+  padding: 22px 26px 18px;
+  border-bottom: 1px solid var(--sim3-line);
+  flex-shrink: 0;
+}
+#screen-agents.sim-v3 .sim-panel__phase-tag {
+  font-family: var(--sim3-font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  color: var(--sim3-accent);
+  margin-bottom: 10px;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+#screen-agents.sim-v3 .sim-panel__phase-tag::before {
+  content: '';
+  width: 6px; height: 6px;
+  background: var(--sim3-accent);
+  border-radius: 50%;
+  box-shadow: 0 0 6px var(--sim3-accent);
+}
+#screen-agents.sim-v3 .sim-panel__title {
+  font-family: var(--sim3-font-serif);
+  font-weight: 400;
+  font-size: 1.5rem;
+  line-height: 1.2;
+  letter-spacing: -0.005em;
+  color: var(--sim3-fg);
+  margin: 0;
+}
+#screen-agents.sim-v3 .sim-panel__title em {
+  font-style: italic;
+  color: var(--sim3-accent);
+  font-weight: 400;
+}
+#screen-agents.sim-v3 .sim-panel__sub {
+  font-family: var(--sim3-font-sans);
+  font-size: 0.88rem;
+  color: var(--sim3-muted);
+  margin-top: 8px;
+  line-height: 1.55;
+}
+#screen-agents.sim-v3 .sim-panel__progress {
+  margin-top: 16px;
+  height: 3px;
+  background: var(--sim3-line);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+#screen-agents.sim-v3 .sim-panel__progress-fill {
+  height: 100%;
+  background: var(--sim3-accent);
+  border-radius: 999px;
+  width: 0%;
+  transition: width 0.35s ease;
+  box-shadow: 0 0 8px var(--sim3-accent);
+}
+#screen-agents.sim-v3 .sim-panel__progress-meta {
+  display: flex; justify-content: space-between;
+  margin-top: 8px;
+  font-family: var(--sim3-font-mono);
+  font-size: 0.72rem;
+  color: var(--sim3-muted);
+}
+#screen-agents.sim-v3 .sim-panel__progress-meta b {
+  color: var(--sim3-fg);
+  font-family: var(--sim3-font-serif);
+  font-style: italic;
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
+/* Body */
+#screen-agents.sim-v3 .sim-panel__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 26px 32px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--sim3-line-strong) transparent;
+}
+#screen-agents.sim-v3 .sim-panel__body::-webkit-scrollbar { width: 6px; }
+#screen-agents.sim-v3 .sim-panel__body::-webkit-scrollbar-thumb { background: var(--sim3-line-strong); border-radius: 999px; }
+#screen-agents.sim-v3 .sim-panel__body::-webkit-scrollbar-track { background: transparent; }
+
+/* Build steps */
+#screen-agents.sim-v3 .sim-bstep {
+  border: 1px solid var(--sim3-line);
+  border-radius: var(--sim3-r-md);
+  margin-bottom: 10px;
+  background: var(--sim3-bg-3);
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+#screen-agents.sim-v3 .sim-bstep.is-active { border-color: rgba(234,90,44,0.45); }
+#screen-agents.sim-v3 .sim-bstep.is-done   { border-color: rgba(52,211,153,0.25); }
+#screen-agents.sim-v3 .sim-bstep__header {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+#screen-agents.sim-v3 .sim-bstep__header:hover { background: rgba(232,233,236,0.03); }
+#screen-agents.sim-v3 .sim-bstep__num {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--sim3-line-strong);
+  display: grid; place-items: center;
+  font-family: var(--sim3-font-mono);
+  font-size: 0.78rem;
+  color: var(--sim3-muted);
+  font-weight: 500;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+#screen-agents.sim-v3 .sim-bstep.is-active .sim-bstep__num {
+  background: var(--sim3-accent);
+  border-color: var(--sim3-accent);
+  color: var(--sim3-bg);
+  box-shadow: 0 0 0 4px rgba(234,90,44,0.18);
+}
+#screen-agents.sim-v3 .sim-bstep.is-done .sim-bstep__num {
+  background: var(--sim3-emerald);
+  border-color: var(--sim3-emerald);
+  color: var(--sim3-bg);
+}
+#screen-agents.sim-v3 .sim-bstep__info { flex: 1; min-width: 0; }
+#screen-agents.sim-v3 .sim-bstep__name {
+  font-family: var(--sim3-font-sans);
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--sim3-fg);
+}
+#screen-agents.sim-v3 .sim-bstep__status {
+  font-family: var(--sim3-font-mono);
+  font-size: 0.72rem;
+  color: var(--sim3-muted);
+  margin-top: 3px;
+}
+#screen-agents.sim-v3 .sim-bstep.is-active .sim-bstep__status { color: var(--sim3-accent); }
+#screen-agents.sim-v3 .sim-bstep.is-done .sim-bstep__status   { color: var(--sim3-emerald); }
+#screen-agents.sim-v3 .sim-bstep__chev {
+  color: var(--sim3-muted-soft);
+  transition: transform 0.2s;
+}
+#screen-agents.sim-v3 .sim-bstep.is-open .sim-bstep__chev { transform: rotate(180deg); }
+#screen-agents.sim-v3 .sim-bstep__body {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+#screen-agents.sim-v3 .sim-bstep.is-open .sim-bstep__body { max-height: 800px; }
+#screen-agents.sim-v3 .sim-bstep__body-inner {
+  padding: 4px 16px 16px;
+  border-top: 1px solid var(--sim3-line);
+}
+#screen-agents.sim-v3 .sim-bstep__log {
+  font-family: var(--sim3-font-mono);
+  font-size: 0.74rem;
+  line-height: 1.7;
+  color: var(--sim3-fg-soft);
+  list-style: none;
+  margin-top: 10px;
+  padding: 0;
+}
+#screen-agents.sim-v3 .sim-bstep__log li {
+  padding: 3px 0;
+  color: var(--sim3-fg-soft);
+  opacity: 0.85;
+}
+#screen-agents.sim-v3 .sim-bstep__log li::before {
+  content: '› ';
+  color: var(--sim3-accent);
+  margin-right: 4px;
+}
+
+/* Metrics grid (sim phase) */
+#screen-agents.sim-v3 .sim-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+#screen-agents.sim-v3 .sim-metric {
+  border: 1px solid var(--sim3-line);
+  border-radius: var(--sim3-r-sm);
+  padding: 12px 14px;
+  background: var(--sim3-bg-3);
+  text-align: left;
+}
+#screen-agents.sim-v3 .sim-metric__label {
+  font-family: var(--sim3-font-mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.02em;
+  color: var(--sim3-muted);
+  margin-bottom: 6px;
+  text-transform: none;
+  font-weight: 400;
+}
+#screen-agents.sim-v3 .sim-metric__value {
+  font-family: var(--sim3-font-serif) !important;
+  font-style: italic;
+  font-weight: 500;
+  font-size: 1.4rem;
+  letter-spacing: -0.01em;
+  color: var(--sim3-fg) !important;
+  line-height: 1.05;
+}
+#screen-agents.sim-v3 .sim-metric__delta {
+  font-family: var(--sim3-font-mono);
+  font-size: 0.7rem;
+  color: var(--sim3-muted);
+  margin-top: 4px;
+}
+#screen-agents.sim-v3 .sim-metric__delta.is-up   { color: var(--sim3-emerald); }
+#screen-agents.sim-v3 .sim-metric__delta.is-down { color: var(--sim3-rose);    }
+
+/* Feed */
+#screen-agents.sim-v3 .sim-feed-head {
+  display: flex; justify-content: space-between; align-items: center;
+  font-family: var(--sim3-font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  color: var(--sim3-muted);
+  margin: 18px 0 12px;
+}
+#screen-agents.sim-v3 #sim-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0;
+  border: none;
+}
+#screen-agents.sim-v3 .sim-event {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--sim3-bg-3);
+  border: 1px solid var(--sim3-line);
+  border-radius: var(--sim3-r-sm);
+  opacity: 0;
+  transform: translateY(6px);
+  animation: sim3-event-in 0.4s ease both;
+}
+@keyframes sim3-event-in { to { opacity: 1; transform: translateY(0); } }
+#screen-agents.sim-v3 .sim-event__avatar {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--sim3-line-strong);
+  display: grid; place-items: center;
+  font-family: var(--sim3-font-serif);
+  font-style: italic;
+  font-weight: 500;
+  font-size: 0.85rem;
+  color: var(--sim3-fg);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+#screen-agents.sim-v3 .sim-event__content { min-width: 0; }
+#screen-agents.sim-v3 .sim-event__head {
+  display: flex; align-items: baseline; gap: 8px;
+  margin-bottom: 3px;
+}
+#screen-agents.sim-v3 .sim-event__name {
+  font-family: var(--sim3-font-sans);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--sim3-fg);
+}
+#screen-agents.sim-v3 .sim-event__role {
+  font-family: var(--sim3-font-mono);
+  font-size: 0.68rem;
+  color: var(--sim3-muted-soft);
+}
+#screen-agents.sim-v3 .sim-event__time {
+  margin-left: auto;
+  font-family: var(--sim3-font-mono);
+  font-size: 0.68rem;
+  color: var(--sim3-muted-soft);
+}
+#screen-agents.sim-v3 .sim-event__body {
+  font-family: var(--sim3-font-sans);
+  font-size: 0.85rem;
+  color: var(--sim3-fg-soft);
+  line-height: 1.55;
+}
+
+/* Decision card (user-mode pause) */
+#screen-agents.sim-v3 .sim-decision {
+  border: 1px solid var(--sim3-accent);
+  border-radius: var(--sim3-r-md);
+  background: linear-gradient(180deg, rgba(234,90,44,0.10), rgba(234,90,44,0.02));
+  padding: 18px 20px;
+  margin: 12px 0;
+  position: relative;
+}
+#screen-agents.sim-v3 .sim-decision__tag {
+  font-family: var(--sim3-font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.02em;
+  color: var(--sim3-accent);
+  margin-bottom: 10px;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+#screen-agents.sim-v3 .sim-decision__tag::before {
+  content: '';
+  width: 6px; height: 6px;
+  background: var(--sim3-accent);
+  border-radius: 50%;
+  animation: sim3-pulse-accent 1.4s infinite;
+}
+@keyframes sim3-pulse-accent {
+  0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(234,90,44,0.6); }
+  70% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(234,90,44,0); }
+}
+#screen-agents.sim-v3 .sim-decision__title {
+  font-family: var(--sim3-font-serif);
+  font-weight: 500;
+  font-size: 1.08rem;
+  line-height: 1.35;
+  color: var(--sim3-fg);
+  margin-bottom: 6px;
+}
+#screen-agents.sim-v3 .sim-decision__desc {
+  font-family: var(--sim3-font-sans);
+  font-size: 0.85rem;
+  color: var(--sim3-fg-soft);
+  line-height: 1.55;
+  margin-bottom: 14px;
+}
+
+/* Footer controls */
+#screen-agents.sim-v3 .sim-controls {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 26px;
+  border-top: 1px solid var(--sim3-line);
+  background: var(--sim3-bg-2);
+  flex-shrink: 0;
+}
+#screen-agents.sim-v3 .sim-control-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px;
+  font-family: var(--sim3-font-sans);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--sim3-fg);
+  background: var(--sim3-bg-3);
+  border: 1px solid var(--sim3-line-strong);
+  border-radius: var(--sim3-r-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+#screen-agents.sim-v3 .sim-control-btn:hover {
+  border-color: var(--sim3-accent);
+  color: var(--sim3-accent);
+}
+#screen-agents.sim-v3 .sim-control-btn--primary {
+  background: var(--sim3-accent);
+  border-color: var(--sim3-accent);
+  color: var(--sim3-bg);
+}
+#screen-agents.sim-v3 .sim-control-btn--primary:hover {
+  background: #c94a22;
+  border-color: #c94a22;
+  color: var(--sim3-bg);
+}
+#screen-agents.sim-v3 .sim-control-btn--ghost {
+  background: transparent;
+  border-color: var(--sim3-line);
+  color: var(--sim3-muted);
+}
+#screen-agents.sim-v3 .sim-speed {
+  display: flex; align-items: center; gap: 8px;
+  margin-left: auto;
+  font-family: var(--sim3-font-mono);
+  font-size: 0.74rem;
+  color: var(--sim3-muted);
+}
+#screen-agents.sim-v3 .sim-speed input[type="range"] {
+  -webkit-appearance: none;
+  width: 100px; height: 3px;
+  background: var(--sim3-line-strong);
+  border-radius: 999px;
+}
+#screen-agents.sim-v3 .sim-speed input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px; height: 12px;
+  background: var(--sim3-accent);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+/* Hide legacy elements that aren't part of v3 layout */
+#screen-agents.sim-v3 .sim-stages,
+#screen-agents.sim-v3 .sim-topbar,
+#screen-agents.sim-v3 .sbp-stats-bar,
+#screen-agents.sim-v3 .sbp-cta {
+  display: none !important;
+}
+
+/* Responsive collapse */
+@media (max-width: 1100px) {
+  #screen-agents.sim-v3 {
+    grid-template-columns: 1fr;
+    grid-template-rows: 50vh 1fr;
+    height: auto; min-height: calc(100vh - 60px);
+  }
+  #screen-agents.sim-v3 .sandbox-right { border-left: none; border-top: 1px solid var(--sim3-line); }
+}

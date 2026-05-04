@@ -7,6 +7,16 @@ import { defineConfig } from 'vite';
 const backendTarget = process.env.VITE_BACKEND_URL || 'http://localhost:5001';
 
 export default defineConfig({
+  resolve: {
+    // 3d-force-graph + three-spritetext + three-render-objects each pull
+    // their own `three` import — without dedupe Vite ends up shipping two
+    // copies and `Timer` goes missing on the duplicate ("three$1.Timer
+    // is not a constructor").
+    dedupe: ['three'],
+  },
+  optimizeDeps: {
+    include: ['three', '3d-force-graph', 'three-spritetext'],
+  },
   server: {
     proxy: {
       '/api': {
