@@ -1,0 +1,1504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lokafish — World Model for Economic Prediction</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter+Tight:wght@400..900&family=Space+Grotesk:wght@400..700&family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Familjen+Grotesk:wght@400..700&display=swap" rel="stylesheet">
+
+    <!-- Geist, General Sans, Satoshi from Fontshare CDN -->
+    <link href="https://api.fontshare.com/v2/css?f[]=geist@400,500,600,700,800&f[]=general-sans@500,600,700&f[]=satoshi@500,700,900&display=swap" rel="stylesheet">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <style>
+        :root {
+            --bg: #ffffff;
+            --bg-alt: #f5f4ef;
+            --fg: #000000;
+            --muted: rgba(0,0,0,0.55);
+            --line: rgba(0,0,0,0.15);
+            --line-strong: rgba(0,0,0,0.5);
+            --font-display: 'Familjen Grotesk', system-ui, sans-serif;
+            --font-display-style: normal;
+            --font-display-weight: 700;
+            --font-display-tracking: -0.035em;
+            --font-mono: 'JetBrains Mono', monospace;
+            --font-sans: 'Inter Tight', system-ui, -apple-system, sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body {
+            background-color: var(--bg);
+            color: var(--fg);
+            font-family: var(--font-mono);
+            font-size: 14px;
+            line-height: 1.6;
+            cursor: crosshair;
+        }
+        body { overflow-x: hidden; }
+        ::selection { background: var(--fg); color: var(--bg); }
+        a { color: inherit; text-decoration: none; }
+        button { font-family: inherit; cursor: crosshair; }
+
+        .mono-up { letter-spacing: 0.02em; font-size: 0.78rem; }
+
+        /* ─── System chrome ─── */
+        .sys-code {
+            position: fixed;
+            font-family: var(--font-mono);
+            font-size: 0.76rem;
+            letter-spacing: 0.02em;
+            pointer-events: none;
+            z-index: 50;
+            opacity: 0.6;
+            mix-blend-mode: difference;
+            color: #fff;
+        }
+        .code-tl { top: 18px; left: 22px; }
+        .code-tr { top: 18px; right: 22px; text-align: right; }
+        .code-bl { bottom: 18px; left: 22px; }
+        .code-br { bottom: 18px; right: 22px; text-align: right; }
+
+        .reg-mark {
+            position: fixed;
+            width: 16px; height: 16px;
+            pointer-events: none;
+            z-index: 50;
+            opacity: 0.35;
+            mix-blend-mode: difference;
+        }
+        .reg-mark::before, .reg-mark::after {
+            content: ''; position: absolute; background: #fff;
+        }
+        .reg-mark::before { top: 50%; left: 0; width: 100%; height: 1px; transform: translateY(-50%); }
+        .reg-mark::after  { left: 50%; top: 0; height: 100%; width: 1px; transform: translateX(-50%); }
+        .rm-tl { top: 56px; left: 56px; }
+        .rm-tr { top: 56px; right: 56px; }
+        .rm-bl { bottom: 56px; left: 56px; }
+        .rm-br { bottom: 56px; right: 56px; }
+
+        /* ─── Top header ─── */
+        .nav {
+            position: fixed; top: 0; left: 0; right: 0;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 18px 80px;
+            z-index: 40;
+            border-bottom: 1px solid transparent;
+            backdrop-filter: blur(6px);
+        }
+        .nav__brand {
+            font-family: var(--font-sans);
+            font-size: 1rem;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+        }
+        .nav__links {
+            display: flex; gap: 36px;
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            letter-spacing: 0.2em;
+        }
+        .nav__links a { opacity: 0.6; transition: opacity 0.2s; }
+        .nav__links a:hover { opacity: 1; }
+        .nav__cta {
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            letter-spacing: 0.2em;
+            background: var(--fg); color: var(--bg);
+            border: 1px solid var(--fg);
+            padding: 10px 18px;
+            transition: all 0.2s;
+        }
+        .nav__cta:hover { background: transparent; color: var(--fg); }
+
+        /* ─── HERO ─── */
+        .hero {
+            position: relative;
+            min-height: calc(100vh - 64px);
+            display: grid;
+            grid-template-columns: 1.05fr minmax(440px, 560px) 0.9fr;
+            align-items: center;
+            padding: 96px 96px 64px;
+            gap: 56px;
+            overflow: hidden;
+        }
+        .hero__left {
+            padding-right: 0;
+            display: flex; flex-direction: column;
+            gap: 28px;
+        }
+        .hero__badge {
+            display: inline-flex; align-items: center; gap: 10px;
+            font-family: var(--font-mono);
+            font-size: 0.76rem;
+            letter-spacing: 0.02em;
+            border: 1px solid var(--fg);
+            padding: 6px 12px;
+            align-self: flex-start;
+        }
+        .hero__badge::before {
+            content: ''; width: 6px; height: 6px; background: var(--fg); border-radius: 50%;
+        }
+        .hero__title {
+            font-family: var(--font-display);
+            font-weight: var(--font-display-weight);
+            font-style: var(--font-display-style);
+            letter-spacing: var(--font-display-tracking);
+            font-size: clamp(56px, 6.6vw, 116px);
+            line-height: 0.95;
+        }
+        .hero__title em {
+            font-style: italic;
+            text-decoration: underline;
+            text-decoration-thickness: 2px;
+            text-underline-offset: 8px;
+        }
+        .hero__title .lead {
+            display: block;
+            font-style: normal;
+            font-weight: 700;
+            font-size: 0.14em;
+            letter-spacing: 0.04em;
+            font-family: var(--font-mono);
+            margin-bottom: 18px;
+            opacity: 0.7;
+        }
+        .hero__sub {
+            font-family: var(--font-mono);
+            font-size: 0.82rem;
+            line-height: 1.75;
+            max-width: 36ch;
+            color: var(--muted);
+        }
+        .hero__sub strong { color: var(--fg); font-weight: 500; }
+        .hero__cta-row { display: flex; gap: 14px; margin-top: 4px; }
+        .btn {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            letter-spacing: 0.02em;
+            padding: 16px 26px;
+            border: 1px solid var(--fg);
+            transition: all 0.2s;
+        }
+        .btn--primary { background: var(--fg); color: var(--bg); }
+        .btn--primary:hover { background: transparent; color: var(--fg); }
+        .btn--ghost { background: transparent; color: var(--fg); }
+        .btn--ghost:hover { background: var(--fg); color: var(--bg); }
+
+        .hero__center {
+            position: relative;
+            aspect-ratio: 1/1;
+            width: 100%;
+        }
+        .aperture {
+            position: absolute; inset: 0;
+            border-radius: 50%;
+            border: 1px solid rgba(0,0,0,0.12);
+            overflow: hidden;
+        }
+        #canvas-container {
+            position: absolute; inset: 0;
+        }
+        .aperture-overlay {
+            position: absolute; inset: 0;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            pointer-events: none;
+            text-align: center;
+        }
+        .aperture__brand {
+            font-family: var(--font-sans);
+            font-size: clamp(28px, 3vw, 44px);
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            line-height: 1;
+        }
+        .aperture__status {
+            margin-top: 14px;
+            font-family: var(--font-mono);
+            font-size: 0.74rem;
+            letter-spacing: 0.02em;
+            opacity: 0.55;
+        }
+        .aperture__rings {
+            position: absolute; inset: -8%;
+            border: 1px dashed rgba(0,0,0,0.08);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+        .aperture__rings--2 { inset: -18%; border-color: rgba(0,0,0,0.05); }
+
+        .hero__right {
+            padding-left: 0;
+            display: flex; flex-direction: column;
+            gap: 36px;
+        }
+        .stat-block {
+            border-top: 1px solid var(--fg);
+            padding-top: 14px;
+        }
+        .stat-block__label {
+            font-family: var(--font-mono);
+            font-size: 0.74rem;
+            letter-spacing: 0.02em;
+            opacity: 0.55;
+            margin-bottom: 8px;
+        }
+        .stat-block__value {
+            font-family: var(--font-sans);
+            font-size: 2rem;
+            font-weight: 600;
+            letter-spacing: -0.025em;
+            line-height: 1;
+        }
+        .stat-block__sub {
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            margin-top: 6px;
+            color: var(--muted);
+            letter-spacing: 0.02em;
+        }
+
+        /* ─── Ticker ─── */
+        .ticker {
+            position: relative;
+            border-top: 1px solid var(--fg);
+            border-bottom: 1px solid var(--fg);
+            padding: 22px 0;
+            overflow: hidden;
+            background: var(--bg);
+        }
+        .ticker__track {
+            display: flex; gap: 56px;
+            white-space: nowrap;
+            animation: tick 60s linear infinite;
+            font-family: var(--font-mono);
+            font-size: 0.95rem;
+            letter-spacing: 0.02em;
+        }
+        .ticker__item { display: inline-flex; gap: 12px; align-items: center; }
+        .ticker__item svg { display: block; flex-shrink: 0; }
+        .ticker__item .sym { font-weight: 600; }
+        .ticker__item .val { opacity: 0.7; }
+        .ticker__item .delta--up::before { content: '▲ '; font-size: 0.6em; }
+        .ticker__item .delta--down::before { content: '▼ '; font-size: 0.6em; }
+        @keyframes tick {
+            from { transform: translateX(0); }
+            to { transform: translateX(-50%); }
+        }
+
+        /* ─── Section base ─── */
+        .section {
+            position: relative;
+            padding: 140px 80px;
+            border-top: 1px solid var(--fg);
+        }
+        .section--alt { background: var(--bg-alt); }
+        .section__head {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 80px;
+            align-items: end;
+            margin-bottom: 80px;
+        }
+        .section__num {
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            letter-spacing: 0.02em;
+            opacity: 0.55;
+        }
+        .section__label {
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            opacity: 0.6;
+            margin-bottom: 14px;
+            display: block;
+        }
+        .section__title {
+            font-family: var(--font-sans);
+            font-weight: 600;
+            font-size: clamp(36px, 4.6vw, 64px);
+            line-height: 1.05;
+            letter-spacing: -0.035em;
+        }
+        .section__desc {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            line-height: 1.8;
+            max-width: 56ch;
+            color: var(--muted);
+            margin-top: 24px;
+        }
+
+        /* ─── What is Loka — feature cards ─── */
+        .features {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            border-top: 1px solid var(--fg);
+        }
+        .feature {
+            padding: 40px 32px 56px;
+            border-right: 1px solid var(--line);
+            display: flex; flex-direction: column;
+            gap: 20px;
+            min-height: 360px;
+            position: relative;
+        }
+        .feature:last-child { border-right: none; }
+        .feature__num {
+            font-family: var(--font-mono);
+            font-size: 0.74rem;
+            letter-spacing: 0.02em;
+            opacity: 0.55;
+        }
+        .feature__title {
+            font-family: var(--font-sans);
+            font-weight: 600;
+            font-size: 1.5rem;
+            line-height: 1.15;
+            letter-spacing: -0.025em;
+        }
+        .feature__desc {
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            line-height: 1.75;
+            color: var(--muted);
+        }
+        .feature__rule {
+            height: 1px; background: var(--fg);
+            width: 32px;
+            margin-top: auto;
+        }
+
+        /* ─── Pipeline (5 stages) ─── */
+        .pipeline {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            border-top: 1px solid var(--fg);
+            border-bottom: 1px solid var(--fg);
+        }
+        .pipe-step {
+            padding: 36px 24px 44px;
+            border-right: 1px solid var(--line);
+            display: flex; flex-direction: column;
+            gap: 16px;
+            min-height: 280px;
+        }
+        .pipe-step:last-child { border-right: none; }
+        .pipe-step__num {
+            font-family: var(--font-sans);
+            font-weight: 600;
+            font-size: 2.4rem;
+            line-height: 1;
+            letter-spacing: -0.04em;
+            opacity: 0.75;
+        }
+        .pipe-step__title {
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+        .pipe-step__desc {
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            line-height: 1.7;
+            color: var(--muted);
+        }
+        .pipe-step__tag {
+            margin-top: auto;
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            letter-spacing: 0.02em;
+            opacity: 0.5;
+        }
+
+        /* ─── Specs ─── */
+        .specs {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            border-top: 1px solid var(--fg);
+        }
+        .spec {
+            padding: 36px 32px 48px;
+            border-right: 1px solid var(--line);
+            border-bottom: 1px solid var(--line);
+            display: flex; flex-direction: column;
+            gap: 8px;
+        }
+        .spec:nth-child(3n) { border-right: none; }
+        .spec:nth-last-child(-n+3) { border-bottom: none; }
+        .spec__label {
+            font-family: var(--font-mono);
+            font-size: 0.74rem;
+            letter-spacing: 0.02em;
+            opacity: 0.55;
+        }
+        .spec__value {
+            font-family: var(--font-sans);
+            font-weight: 600;
+            font-size: 3.4rem;
+            line-height: 1;
+            letter-spacing: -0.035em;
+        }
+        .spec__unit {
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            line-height: 1.6;
+            color: var(--muted);
+            margin-top: 8px;
+        }
+
+        /* ─── Comparison ─── */
+        .compare {
+            border-top: 1px solid var(--fg);
+            border-bottom: 1px solid var(--fg);
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+        }
+        .compare-row {
+            display: grid;
+            grid-template-columns: 1.2fr 1fr 1fr 1.4fr;
+            border-bottom: 1px solid var(--line);
+        }
+        .compare-row:last-child { border-bottom: none; }
+        .compare-row > * {
+            padding: 22px 24px;
+            border-right: 1px solid var(--line);
+        }
+        .compare-row > *:last-child { border-right: none; }
+        .compare-row--head > * {
+            font-size: 0.74rem;
+            letter-spacing: 0.02em;
+            opacity: 0.7;
+            font-weight: 700;
+        }
+        .compare-row--head .compare-row__own {
+            opacity: 1;
+            background: var(--fg);
+            color: var(--bg);
+        }
+        .compare-row__label {
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            font-size: 0.7rem;
+        }
+        .compare-row__own {
+            background: var(--bg-alt);
+            font-weight: 500;
+        }
+        .compare-row > *:not(.compare-row__own):not(.compare-row__label) {
+            color: var(--muted);
+        }
+
+        /* ─── Partners ─── */
+        .partner-row {
+            display: grid;
+            grid-template-columns: 200px 1fr;
+            gap: 40px;
+            padding: 32px 0;
+            border-top: 1px solid var(--line);
+            align-items: center;
+        }
+        .partner-row:first-child { border-top: 1px solid var(--fg); }
+        .partner-row:last-child  { border-bottom: 1px solid var(--fg); }
+        .partner-row__label {
+            font-family: var(--font-mono);
+            font-size: 0.76rem;
+            letter-spacing: 0.02em;
+            opacity: 0.6;
+        }
+        .partner-row__items {
+            display: flex; flex-wrap: wrap;
+            gap: 14px;
+        }
+        .partner {
+            display: inline-flex; align-items: center; gap: 10px;
+            padding: 10px 14px;
+            border: 1px solid var(--fg);
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            letter-spacing: 0.02em;
+            transition: all 0.2s;
+        }
+        .partner:hover { background: var(--fg); color: var(--bg); }
+        .partner svg { display: block; }
+
+        /* ─── Final CTA ─── */
+        .end-cta {
+            padding: 180px 80px;
+            text-align: center;
+            border-top: 1px solid var(--fg);
+            position: relative;
+        }
+        .end-cta__title {
+            font-family: var(--font-sans);
+            font-weight: 600;
+            font-size: clamp(48px, 6.4vw, 96px);
+            line-height: 1.02;
+            letter-spacing: -0.035em;
+            max-width: 18ch;
+            margin: 0 auto 40px;
+        }
+        .end-cta__sub {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            line-height: 1.8;
+            color: var(--muted);
+            max-width: 56ch;
+            margin: 0 auto 48px;
+        }
+
+        /* ─── Footer ─── */
+        .foot {
+            padding: 40px 80px;
+            border-top: 1px solid var(--fg);
+            display: flex; justify-content: space-between;
+            font-family: var(--font-mono);
+            font-size: 0.76rem;
+            letter-spacing: 0.02em;
+            opacity: 0.7;
+        }
+
+        /* ─── Font picker ─── */
+        .font-picker__handle {
+            position: fixed;
+            right: 24px;
+            bottom: 24px;
+            background: var(--fg);
+            color: var(--bg);
+            border: 1px solid var(--fg);
+            padding: 12px 16px;
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            letter-spacing: 0.02em;
+            z-index: 60;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.2s;
+        }
+        .font-picker__handle:hover { background: transparent; color: var(--fg); }
+        .font-picker {
+            position: fixed;
+            right: 24px;
+            bottom: 24px;
+            width: 320px;
+            max-height: 80vh;
+            overflow-y: auto;
+            background: var(--bg);
+            border: 1px solid var(--fg);
+            z-index: 70;
+            display: none;
+            flex-direction: column;
+            box-shadow: 12px 12px 0 var(--fg);
+        }
+        .font-picker.is-open { display: flex; }
+        .font-picker__head {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--fg);
+            background: var(--fg);
+            color: var(--bg);
+        }
+        .font-picker__title {
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            letter-spacing: 0.02em;
+        }
+        .font-picker__close {
+            background: transparent;
+            border: 1px solid var(--bg);
+            color: var(--bg);
+            width: 22px; height: 22px;
+            font-size: 14px;
+            line-height: 1;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .font-picker__list { display: flex; flex-direction: column; }
+        .fp-opt {
+            display: block;
+            text-align: left;
+            background: transparent;
+            border: 0;
+            border-bottom: 1px solid var(--line);
+            padding: 18px 18px 16px;
+            cursor: crosshair;
+            transition: background 0.15s;
+        }
+        .fp-opt:last-child { border-bottom: none; }
+        .fp-opt:hover { background: var(--bg-alt); }
+        .fp-opt.is-active { background: var(--bg-alt); border-left: 3px solid var(--fg); }
+        .fp-opt__name {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            letter-spacing: 0.02em;
+            opacity: 0.6;
+            display: block;
+            margin-bottom: 6px;
+        }
+        .fp-opt__sample {
+            display: block;
+            font-size: 1.45rem;
+            line-height: 1;
+        }
+        .fp-opt__sample em { font-style: italic; }
+
+        
+        /* ─── Pipeline visualization ─── */
+        .section--pipe {
+            background: var(--bg-alt);
+            padding: 120px 80px 140px;
+        }
+        .pipe-head {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 80px;
+            margin-bottom: 100px;
+            align-items: end;
+        }
+        .pipe-head__left .section__label { display: block; margin-bottom: 18px; }
+        .pipe-head__right { display: flex; flex-direction: column; gap: 28px; }
+        .pipe-head__desc {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            line-height: 1.75;
+            color: var(--muted);
+            max-width: 52ch;
+        }
+        .pipe-head__meta {
+            display: grid;
+            grid-template-columns: repeat(3, auto);
+            gap: 40px;
+            border-top: 1px solid var(--fg);
+            padding-top: 18px;
+        }
+        .pipe-head__meta > div { display: flex; flex-direction: column; gap: 6px; }
+        .pipe-head__metaLabel {
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            opacity: 0.55;
+            letter-spacing: 0.02em;
+        }
+        .pipe-head__metaVal {
+            font-family: var(--font-sans);
+            font-size: 1.4rem;
+            font-weight: 600;
+            letter-spacing: -0.025em;
+        }
+
+        .rail {
+            position: relative;
+            margin-bottom: 100px;
+        }
+        .rail__line {
+            position: absolute;
+            top: 124px;
+            left: 0; right: 0;
+            width: 100%;
+            height: 24px;
+            opacity: 0.45;
+        }
+        .rail__row {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 0;
+            position: relative;
+        }
+        .stage {
+            padding: 0 22px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            position: relative;
+        }
+        .stage__viz {
+            width: 132px;
+            height: 132px;
+            border: 1px solid var(--fg);
+            background: var(--bg);
+            margin: 0 auto 24px;
+            position: relative;
+            overflow: hidden;
+        }
+        .stage__num {
+            font-family: var(--font-sans);
+            font-weight: 600;
+            font-size: 1.1rem;
+            letter-spacing: -0.015em;
+            opacity: 0.5;
+        }
+        .stage__title {
+            font-family: var(--font-sans);
+            font-weight: 600;
+            font-size: 1.15rem;
+            line-height: 1.15;
+            letter-spacing: -0.025em;
+        }
+        .stage__desc {
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            line-height: 1.65;
+            color: var(--muted);
+        }
+        .stage__tag {
+            margin-top: auto;
+            padding-top: 14px;
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            opacity: 0.7;
+            letter-spacing: 0.02em;
+        }
+
+        /* Stage 1 — input chip */
+        .stage__viz--input {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 22px 18px;
+            gap: 6px;
+        }
+        .stage__viz--input .kbd {
+            font-family: var(--font-display);
+            font-size: 38px;
+            line-height: 0.6;
+            font-style: italic;
+            font-weight: 900;
+            margin-bottom: 6px;
+        }
+        .kbd-line { display: flex; gap: 4px; }
+        .kbd-line span {
+            height: 6px;
+            background: #000;
+            flex: 1;
+            opacity: 0.85;
+        }
+        .kbd-line span:nth-child(1) { flex: 2; }
+        .kbd-line span:nth-child(2) { flex: 1.4; opacity: 0.6; }
+        .kbd-line span:nth-child(3) { flex: 0.8; opacity: 0.35; }
+        .stage__viz--input .cursor {
+            width: 2px; height: 12px;
+            background: #000;
+            margin-top: 4px;
+            animation: blink 1s steps(2, end) infinite;
+        }
+        @keyframes blink { 50% { opacity: 0; } }
+
+        /* Stage 2 — agent grid */
+        .stage__viz--grid {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            grid-template-rows: repeat(10, 1fr);
+            gap: 1px;
+            padding: 8px;
+        }
+        .stage__viz--grid div {
+            background: #000;
+        }
+
+        /* Stage 3 — network */
+        .stage__viz--net svg { width: 100%; height: 100%; display: block; }
+        .stage__viz--net circle { fill: #000; }
+        .stage__viz--net line { stroke: #000; stroke-width: 0.4; opacity: 0.4; }
+
+        /* Stage 4 — distribution: SVG inline */
+        .stage__viz--dist svg { width: 100%; height: 100%; display: block; }
+
+        /* Stage 5 — composed report */
+        .stage__viz--report {
+            padding: 14px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            justify-content: center;
+        }
+        .rep-bar {
+            height: 8px;
+            background: rgba(0,0,0,0.08);
+            position: relative;
+        }
+        .rep-bar span {
+            display: block;
+            height: 100%;
+            background: #000;
+        }
+        .rep-tile {
+            margin-top: 6px;
+            height: 30px;
+            background:
+                linear-gradient(90deg, rgba(0,0,0,0.65) 0 20%, transparent 20% 40%, rgba(0,0,0,0.4) 40% 60%, transparent 60% 80%, rgba(0,0,0,0.85) 80% 100%),
+                linear-gradient(0deg, rgba(0,0,0,0.05), rgba(0,0,0,0.05));
+        }
+
+        /* IO row */
+        .iorow {
+            display: grid;
+            grid-template-columns: 1fr 80px 1fr;
+            gap: 0;
+            align-items: center;
+            margin-top: 60px;
+        }
+        .iorow__col { display: flex; flex-direction: column; gap: 14px; }
+        .iorow__label {
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            opacity: 0.55;
+        }
+        .iorow__card {
+            border: 1px solid var(--fg);
+            background: var(--bg);
+            padding: 28px 30px;
+            min-height: 180px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+        .iorow__caret {
+            font-family: var(--font-mono);
+            font-size: 1.1rem;
+            font-weight: 700;
+            opacity: 0.5;
+        }
+        .iorow__text {
+            font-family: var(--font-display);
+            font-style: italic;
+            font-weight: 700;
+            font-size: 1.55rem;
+            line-height: 1.25;
+            letter-spacing: -0.02em;
+        }
+        .iorow__arrow svg { width: 100%; height: 14px; opacity: 0.65; }
+        .iorow__card--output { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+        .iorow__metric { padding-bottom: 14px; border-bottom: 1px solid rgba(255,255,255,0.2); }
+        .iorow__metricVal {
+            font-family: var(--font-sans);
+            font-weight: 600;
+            font-size: 3rem;
+            letter-spacing: -0.04em;
+            line-height: 1;
+        }
+        .iorow__metricVal span { font-size: 0.5em; font-weight: 500; opacity: 0.7; margin-left: 4px; }
+        .iorow__metricLabel {
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            opacity: 0.7;
+            margin-top: 6px;
+        }
+        .iorow__sectors {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px 28px;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+        }
+        .iorow__sectors > div {
+            display: flex; justify-content: space-between;
+            padding: 6px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.15);
+        }
+        .iorow__sectors b { font-weight: 700; }
+
+
+        /* ─── Partners block ─── */
+        .section--partners {
+            padding: 120px 80px 100px;
+        }
+        .partners-head {
+            margin-bottom: 56px;
+        }
+        .partners-head .section__label { display: block; margin-bottom: 18px; }
+        .partners-head__desc {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            line-height: 1.75;
+            color: var(--muted);
+            max-width: 56ch;
+            margin-top: 24px;
+        }
+        .partner-block {
+            display: grid;
+            grid-template-columns: 200px 1fr;
+            gap: 40px;
+            padding: 28px 0;
+            border-top: 1px solid var(--line);
+            align-items: center;
+        }
+        .partner-block:first-of-type { border-top: 1px solid var(--fg); }
+        .partner-block:last-of-type { border-bottom: 1px solid var(--fg); }
+        .partner-block__label {
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            opacity: 0.6;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+        }
+        .partner-block__items {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 14px;
+        }
+        @media (max-width: 1100px) {
+            .section--partners { padding: 80px 32px; }
+            .partner-block { grid-template-columns: 1fr; gap: 14px; }
+        }
+
+        @media (max-width: 1100px) {
+            .pipe-head { grid-template-columns: 1fr; gap: 24px; margin-bottom: 60px; }
+            .rail__row { grid-template-columns: 1fr; gap: 28px; }
+            .rail__line { display: none; }
+            .stage { padding: 0; border-bottom: 1px solid var(--line); padding-bottom: 24px; }
+            .iorow { grid-template-columns: 1fr; }
+            .iorow__arrow { display: none; }
+            .section--pipe { padding: 80px 32px; }
+        }
+
+        @media (max-width: 1100px) {
+            .hero { grid-template-columns: 1fr; gap: 60px; padding: 100px 32px 60px; }
+            .hero__left, .hero__right { padding: 0; }
+            .hero__center { max-width: 480px; margin: 0 auto; width: 100%; }
+            .nav, .section, .end-cta, .foot { padding-left: 32px; padding-right: 32px; }
+            .section__head { grid-template-columns: 1fr; gap: 24px; }
+            .features, .specs { grid-template-columns: 1fr; }
+            .feature, .spec { border-right: none; border-bottom: 1px solid var(--line); }
+            .pipeline { grid-template-columns: 1fr; }
+            .pipe-step { border-right: none; border-bottom: 1px solid var(--line); min-height: auto; }
+            .compare-row { grid-template-columns: 1fr; }
+            .compare-row > * { border-right: none; border-bottom: 1px solid var(--line); }
+            .compare-row > *:last-child { border-bottom: none; }
+            .partner-row { grid-template-columns: 1fr; gap: 16px; }
+            .nav__links { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- nav -->
+    <nav class="nav">
+        <div class="nav__brand">Lokafish</div>
+        <div class="nav__links">
+            <a href="#how">Pipeline</a>
+            <a href="#io">Example</a>
+        </div>
+        <button class="nav__cta" id="btn-nav">Start prediction →</button>
+    </nav>
+
+    <!-- HERO -->
+    <section class="hero">
+        <div class="hero__left">
+            <span class="hero__badge">World model · Economic prediction</span>
+            <h1 class="hero__title">
+                <span class="lead">Loka world model</span>
+                Simulate the <em>economy</em>.
+            </h1>
+            <p class="hero__sub">
+                Loka deploys <strong>thousands of autonomous AI agents</strong> against a real-world economic scenario, then returns <strong>institutional-grade quantitative predictions</strong> with confidence intervals — not text, but actionable numbers.
+            </p>
+            <div class="hero__cta-row">
+                <button class="btn btn--primary" id="btn-start">Start prediction →</button>
+                <button class="btn btn--ghost" id="btn-learn">Learn more ↓</button>
+            </div>
+        </div>
+
+        <div class="hero__center">
+            <div class="aperture__rings aperture__rings--2"></div>
+            <div class="aperture__rings"></div>
+            <div class="aperture">
+                <div id="canvas-container"></div>
+                <div class="aperture-overlay">
+                    <div class="aperture__brand">Loka World</div>
+                    <div class="aperture__status">Swarm initializing…</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="hero__right">
+            <div class="stat-block">
+                <div class="stat-block__label">Agent profiles</div>
+                <div class="stat-block__value" data-count="2000" data-suffix="+">0+</div>
+                <div class="stat-block__sub">Sampled from real demographic statistics</div>
+            </div>
+            <div class="stat-block">
+                <div class="stat-block__label">Industries</div>
+                <div class="stat-block__value" data-count="200" data-suffix="+">0+</div>
+                <div class="stat-block__sub">Sectors covered across 67 financial categories</div>
+            </div>
+            <div class="stat-block">
+                <div class="stat-block__label">Backtest accuracy</div>
+                <div class="stat-block__value" data-count="94" data-suffix="%">0%</div>
+                <div class="stat-block__sub">Validated against historical events</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ticker -->
+    <div class="ticker">
+        <div class="ticker__track" id="ticker-track"></div>
+    </div>
+
+    <!-- ─── PIPELINE — visualized ─── -->
+    <section class="section section--pipe" id="how">
+        <div class="pipe-head">
+            <div class="pipe-head__left">
+                <span class="section__label">Fig. 01 · Architecture</span>
+                <h2 class="section__title">From a sentence to a structured forecast — in five stages.</h2>
+            </div>
+            <div class="pipe-head__right">
+                <p class="pipe-head__desc">Loka's MiroFish pipeline turns one line of plain English into a fully visualized, quantitative report. Each stage is grounded in a different model — language, knowledge graph, agent swarm, econometric, generative.</p>
+                <div class="pipe-head__meta">
+                    <div><span class="pipe-head__metaLabel">Runtime</span><span class="pipe-head__metaVal">10–30 min</span></div>
+                    <div><span class="pipe-head__metaLabel">Backtest</span><span class="pipe-head__metaVal">94.0%</span></div>
+                    <div><span class="pipe-head__metaLabel">Agents</span><span class="pipe-head__metaVal">up to 10K</span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- The visualization rail -->
+        <div class="rail">
+            <svg class="rail__line" viewBox="0 0 1200 120" preserveAspectRatio="none" aria-hidden="true">
+                <defs>
+                    <marker id="arrowEnd" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+                        <path d="M0,0 L10,5 L0,10 Z" fill="#000"></path>
+                    </marker>
+                </defs>
+                <path d="M30,60 L1170,60" stroke="#000" stroke-width="1" fill="none" marker-end="url(#arrowEnd)"></path>
+            </svg>
+
+            <div class="rail__row">
+                <!-- Stage 1: scenario parsing — input chip -->
+                <div class="stage">
+                    <div class="stage__viz stage__viz--input">
+                        <div class="kbd">"</div>
+                        <div class="kbd-line"><span></span><span></span><span></span></div>
+                        <div class="kbd-line"><span></span><span></span></div>
+                        <div class="cursor"></div>
+                    </div>
+                    <div class="stage__num">01</div>
+                    <h4 class="stage__title">Scenario parsing</h4>
+                    <p class="stage__desc">One sentence → event, geography, time horizon, industries.</p>
+                    <div class="stage__tag">LLM ontology</div>
+                </div>
+
+                <!-- Stage 2: world construction — agent grid -->
+                <div class="stage">
+                    <div class="stage__viz stage__viz--grid" id="vizAgents"></div>
+                    <div class="stage__num">02</div>
+                    <h4 class="stage__title">World construction</h4>
+                    <p class="stage__desc">Sample 500 – 10,000 agents from real population data.</p>
+                    <div class="stage__tag">Zep knowledge graph</div>
+                </div>
+
+                <!-- Stage 3: simulation — animated graph -->
+                <div class="stage">
+                    <div class="stage__viz stage__viz--net">
+                        <svg viewBox="0 0 120 120" id="vizNet"></svg>
+                    </div>
+                    <div class="stage__num">03</div>
+                    <h4 class="stage__title">Agent simulation</h4>
+                    <p class="stage__desc">OASIS swarm. Dual-scenario, 40–200 rounds with persistent memory.</p>
+                    <div class="stage__tag">Camel-OASIS</div>
+                </div>
+
+                <!-- Stage 4: quant engine — distribution -->
+                <div class="stage">
+                    <div class="stage__viz stage__viz--dist">
+                        <svg viewBox="0 0 120 120" preserveAspectRatio="none">
+                            <path d="M0,110 C20,110 30,40 60,40 C90,40 100,110 120,110 L120,120 L0,120 Z" fill="#000" opacity="0.08"></path>
+                            <path d="M0,110 C20,110 30,40 60,40 C90,40 100,110 120,110" stroke="#000" stroke-width="1.2" fill="none"></path>
+                            <line x1="60" y1="20" x2="60" y2="115" stroke="#000" stroke-dasharray="2,3" stroke-width="0.8"></line>
+                            <line x1="40" y1="115" x2="40" y2="95" stroke="#000" stroke-width="0.8"></line>
+                            <line x1="80" y1="115" x2="80" y2="95" stroke="#000" stroke-width="0.8"></line>
+                        </svg>
+                    </div>
+                    <div class="stage__num">04</div>
+                    <h4 class="stage__title">Quantitative engine</h4>
+                    <p class="stage__desc">IO + CGE + Monte Carlo (10K). Behavior → GDP metrics with CI.</p>
+                    <div class="stage__tag">IO + CGE + MC</div>
+                </div>
+
+                <!-- Stage 5: visualization — composed report -->
+                <div class="stage">
+                    <div class="stage__viz stage__viz--report">
+                        <div class="rep-bar"><span style="width:78%"></span></div>
+                        <div class="rep-bar"><span style="width:54%"></span></div>
+                        <div class="rep-bar"><span style="width:88%"></span></div>
+                        <div class="rep-bar"><span style="width:32%"></span></div>
+                        <div class="rep-tile"></div>
+                    </div>
+                    <div class="stage__num">05</div>
+                    <h4 class="stage__title">Visualization</h4>
+                    <p class="stage__desc">Heatmaps, flows, confidence intervals, recommendations — six interactive screens.</p>
+                    <div class="stage__tag">ReportAgent ReAct</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- IO row: input + output preview -->
+        <div class="iorow" id="io">
+            <div class="iorow__col">
+                <div class="iorow__label">Input</div>
+                <div class="iorow__card iorow__card--input">
+                    <div class="iorow__text">Singapore unveils a $5B tourism stimulus<br>over the next 18 months.</div>
+                </div>
+            </div>
+
+            <div class="iorow__arrow" aria-hidden="true">
+                <svg viewBox="0 0 80 16" preserveAspectRatio="none">
+                    <path d="M0,8 L72,8" stroke="#000" stroke-width="1" fill="none"></path>
+                    <path d="M64,2 L72,8 L64,14" stroke="#000" stroke-width="1" fill="none"></path>
+                </svg>
+            </div>
+
+            <div class="iorow__col">
+                <div class="iorow__label">Output</div>
+                <div class="iorow__card iorow__card--output">
+                    <div class="iorow__metric">
+                        <div class="iorow__metricVal">+1.42<span>%</span></div>
+                        <div class="iorow__metricLabel">GDP impact, 18 mo (95% CI: 1.18 – 1.71%)</div>
+                    </div>
+                    <div class="iorow__sectors">
+                        <div><span>Tourism</span><b>+8.4%</b></div>
+                        <div><span>F&amp;B</span><b>+3.1%</b></div>
+                        <div><span>Retail</span><b>+2.6%</b></div>
+                        <div><span>Transport</span><b>+1.9%</b></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- PARTNERS -->
+    <section class="section section--partners" id="partners">
+        <div class="partners-head">
+            <span class="section__label">Fig. 02 · Ecosystem</span>
+            <h2 class="section__title">Data infrastructure &amp; settlement partners.</h2>
+            <p class="partners-head__desc">Loka integrates with leading data platforms and blockchain settlement layers for transparent, auditable predictions.</p>
+        </div>
+
+        <div class="partner-block">
+            <div class="partner-block__label">Data providers</div>
+            <div class="partner-block__items">
+                <span class="partner"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M3 15h18M9 4v16M15 4v16"/></svg><span>Bloomberg</span></span>
+                <span class="partner"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M3 12a9 9 0 0 0 18 0"/><path d="M12 3v18"/></svg><span>Reuters</span></span>
+                <span class="partner"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 17 L9 11 L13 14 L21 6"/><path d="M15 6h6v6"/></svg><span>S&amp;P Global</span></span>
+                <span class="partner"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M7 16V8l5 5 5-5v8"/></svg><span>MSCI</span></span>
+                <span class="partner"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="5" width="16" height="14" rx="1"/><path d="M8 9h8M8 13h8M8 17h5"/></svg><span>FactSet</span></span>
+                <span class="partner"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 19V8l7-4 7 4v11"/><path d="M9 19v-6h6v6"/></svg><span>Refinitiv</span></span>
+            </div>
+        </div>
+
+        <div class="partner-block">
+            <div class="partner-block__label">Blockchain &amp; settlement</div>
+            <div class="partner-block__items">
+                <span class="partner"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 2 5 12.5 12 16l7-3.5L12 2z" opacity="0.6"/><path d="M12 17 5 13.5 12 22l7-8.5L12 17z"/></svg><span>Ethereum</span></span>
+                <span class="partner"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M6 7l4-3h8l-4 3H6z" fill="currentColor"/><path d="M6 13l4-3h8l-4 3H6z" fill="currentColor"/><path d="M6 19l4-3h8l-4 3H6z" fill="currentColor"/></svg><span>Solana</span></span>
+                <span class="partner"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/></svg><span>Chainlink</span></span>
+                <span class="partner"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M9 4l-5 3v6l5 3 6-3 5 3V10l-5-3-6 3z"/></svg><span>Polygon</span></span>
+                <span class="partner"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="4"/><circle cx="18" cy="18" r="3"/><path d="M12 12l4 4"/><path d="M19 4l-2 2"/></svg><span>The Graph</span></span>
+                <span class="partner"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 3 L21 19 H15 L13 16 H11 L9 19 H3 L12 3z"/></svg><span>Avalanche</span></span>
+            </div>
+        </div>
+    </section>
+
+    <!-- END CTA -->
+    <section class="end-cta">
+        <h2 class="end-cta__title">Start your<br><em>first prediction.</em></h2>
+        <p class="end-cta__sub">Run a multi-agent simulation against your own scenario, get a structured analysis report — all from a clone-and-go web UI.</p>
+        <button class="btn btn--primary" id="btn-end">Start prediction →</button>
+    </section>
+
+    <footer class="foot">
+        <div>Lokafish · 2026</div>
+        <div>Self-hosted · open-source · agentic intelligence</div>
+    </footer>
+
+
+    <!-- ─── Font picker ─── -->
+    <div class="font-picker" id="fontPicker">
+        <div class="font-picker__head">
+            <span class="font-picker__title">Hero font</span>
+            <button class="font-picker__close" id="fp-close" aria-label="Close">×</button>
+        </div>
+        <div class="font-picker__list" id="fp-list"></div>
+    </div>
+    <button class="font-picker__handle" id="fp-handle">Aa  Hero font</button>
+
+    <!-- ─── Particle globe (V2 visual + V1 connectivity) ─── -->
+    <script>
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+        camera.position.z = 150;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        container.appendChild(renderer.domElement);
+
+        const particleCount = 2200;
+        const particlesGeometry = new THREE.BufferGeometry();
+        const particlesPosition = new Float32Array(particleCount * 3);
+        const velocities = [];
+
+        for (let i = 0; i < particleCount * 3; i += 3) {
+            const r = 100 * Math.cbrt(Math.random());
+            const theta = Math.random() * 2 * Math.PI;
+            const phi = Math.acos(2 * Math.random() - 1);
+            particlesPosition[i] = r * Math.sin(phi) * Math.cos(theta);
+            particlesPosition[i + 1] = r * Math.sin(phi) * Math.sin(theta);
+            particlesPosition[i + 2] = r * Math.cos(phi);
+            velocities.push({
+                x: (Math.random() - 0.5) * 0.18,
+                y: (Math.random() - 0.5) * 0.18,
+                z: (Math.random() - 0.5) * 0.18,
+            });
+        }
+
+        particlesGeometry.setAttribute('position', new THREE.BufferAttribute(particlesPosition, 3));
+
+        const particleMaterial = new THREE.PointsMaterial({
+            color: 0x000000, size: 1.4, transparent: true, opacity: 0.8,
+        });
+        const particleSystem = new THREE.Points(particlesGeometry, particleMaterial);
+        scene.add(particleSystem);
+
+        const lineMaterial = new THREE.LineBasicMaterial({
+            color: 0x000000, transparent: true, opacity: 0.15,
+        });
+        const lineGeometry = new THREE.BufferGeometry();
+        const linePositions = [];
+        const maxDistance = 15;
+        for (let i = 0; i < particleCount; i++) {
+            for (let j = i + 1; j < particleCount; j++) {
+                const ix = i*3, iy = i*3+1, iz = i*3+2;
+                const jx = j*3, jy = j*3+1, jz = j*3+2;
+                const dx = particlesPosition[ix] - particlesPosition[jx];
+                const dy = particlesPosition[iy] - particlesPosition[jy];
+                const dz = particlesPosition[iz] - particlesPosition[jz];
+                const distSq = dx*dx + dy*dy + dz*dz;
+                if (distSq < maxDistance * maxDistance) {
+                    if (Math.random() > 0.8) continue;
+                    linePositions.push(
+                        particlesPosition[ix], particlesPosition[iy], particlesPosition[iz],
+                        particlesPosition[jx], particlesPosition[jy], particlesPosition[jz],
+                    );
+                }
+            }
+        }
+        lineGeometry.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
+        const lines = new THREE.LineSegments(lineGeometry, lineMaterial);
+        scene.add(lines);
+
+        let time = 0;
+        function animate() {
+            requestAnimationFrame(animate);
+            time += 0.005;
+            particleSystem.rotation.y = time * 0.5;
+            particleSystem.rotation.x = time * 0.2;
+            lines.rotation.y = time * 0.5;
+            lines.rotation.x = time * 0.2;
+
+            const positions = particleSystem.geometry.attributes.position.array;
+            for (let i = 0; i < particleCount; i++) {
+                const i3 = i * 3;
+                positions[i3]     += velocities[i].x;
+                positions[i3 + 1] += velocities[i].y;
+                positions[i3 + 2] += velocities[i].z;
+                const d = positions[i3]*positions[i3] + positions[i3+1]*positions[i3+1] + positions[i3+2]*positions[i3+2];
+                if (d > 12000) {
+                    velocities[i].x *= -1;
+                    velocities[i].y *= -1;
+                    velocities[i].z *= -1;
+                }
+            }
+            particleSystem.geometry.attributes.position.needsUpdate = true;
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        function sizeGlobe() {
+            const w = container.clientWidth, h = container.clientHeight;
+            renderer.setSize(w, h);
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+        }
+        window.addEventListener('resize', sizeGlobe);
+        sizeGlobe();
+    </script>
+
+    <!-- ─── Animate stat counters + ticker ─── -->
+    <script>
+        function animateCount(el) {
+            const target = parseInt(el.dataset.count, 10);
+            const suffix = el.dataset.suffix || '';
+            const dur = 1800;
+            const start = performance.now();
+            function frame(now) {
+                const t = Math.min(1, (now - start) / dur);
+                const eased = 1 - Math.pow(1 - t, 3);
+                const v = Math.round(target * eased);
+                el.textContent = v.toLocaleString() + suffix;
+                if (t < 1) requestAnimationFrame(frame);
+            }
+            requestAnimationFrame(frame);
+        }
+        const obs = new IntersectionObserver(entries => {
+            entries.forEach(e => {
+                if (e.isIntersecting) {
+                    animateCount(e.target);
+                    obs.unobserve(e.target);
+                }
+            });
+        }, { threshold: 0.4 });
+        document.querySelectorAll('[data-count]').forEach(el => obs.observe(el));
+
+        // Ticker — partner icons + names
+        const tickerIcons = {
+            Bloomberg: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M3 15h18M9 4v16M15 4v16"/></svg>`,
+            Reuters: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M3 12a9 9 0 0 0 18 0"/><path d="M12 3v18"/></svg>`,
+            'S&P Global': `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 17 L9 11 L13 14 L21 6"/><path d="M15 6h6v6"/></svg>`,
+            MSCI: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M7 16V8l5 5 5-5v8"/></svg>`,
+            FactSet: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="5" width="16" height="14" rx="1"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>`,
+            Refinitiv: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 19V8l7-4 7 4v11"/><path d="M9 19v-6h6v6"/></svg>`,
+            Ethereum: `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2 5 12.5 12 16l7-3.5L12 2z" opacity="0.6"/><path d="M12 17 5 13.5 12 22l7-8.5L12 17z"/></svg>`,
+            Solana: `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 7l4-3h8l-4 3H6z"/><path d="M6 13l4-3h8l-4 3H6z"/><path d="M6 19l4-3h8l-4 3H6z"/></svg>`,
+            Chainlink: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/></svg>`,
+            Polygon: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M9 4l-5 3v6l5 3 6-3 5 3V10l-5-3-6 3z"/></svg>`,
+            'The Graph': `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="4"/><circle cx="18" cy="18" r="3"/><path d="M12 12l4 4"/><path d="M19 4l-2 2"/></svg>`,
+            Avalanche: `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 3 L21 19 H15 L13 16 H11 L9 19 H3 L12 3z"/></svg>`,
+            'World Bank Open Data': `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>`,
+            'IMF Statistics': `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 20h16M4 20V8M9 20V12M14 20V6M19 20V10"/></svg>`,
+            'UN Comtrade': `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 12h18M3 12l4-4M3 12l4 4M21 12l-4-4M21 12l-4 4"/></svg>`,
+            'Singapore SingStat': `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="14" width="3" height="6"/><rect x="10" y="9" width="3" height="11"/><rect x="16" y="4" width="3" height="16"/></svg>`,
+            NYSE: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 18l5-9 4 5 4-7 5 9"/><circle cx="3" cy="18" r="1.4" fill="currentColor"/><circle cx="21" cy="16" r="1.4" fill="currentColor"/></svg>`,
+            'OASIS Framework': `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3" fill="currentColor"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="10" opacity="0.5"/></svg>`,
+        };
+        const partners = Object.keys(tickerIcons);
+        const partnerHtml = partners.map(p => `<span class="ticker__item">${tickerIcons[p]}<span class="sym">${p.replace('&', '&amp;')}</span></span>`).join('');
+        document.getElementById('ticker-track').innerHTML = partnerHtml + partnerHtml;
+
+        // Smooth scroll for nav links
+        document.querySelectorAll('.nav__links a').forEach(a => {
+            a.addEventListener('click', e => {
+                e.preventDefault();
+                const sel = a.getAttribute('href');
+                const t = document.querySelector(sel);
+                if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+        });
+        document.getElementById('btn-learn').addEventListener('click', () => {
+            document.getElementById('what').scrollIntoView({ behavior: 'smooth' });
+        });
+        // CTA buttons → flow page
+        ['btn-start', 'btn-end', 'btn-nav'].forEach(id => {
+            const b = document.getElementById(id);
+            if (b) b.addEventListener('click', () => { window.location.href = 'Lokafish Flow.html'; });
+        });
+    </script>
+
+    <!-- ─── Font picker logic ─── -->
+    <script>
+        const FONT_OPTIONS = [
+            { id: 'familjen', name: 'Familjen Grotesk · nordic', family: "'Familjen Grotesk', system-ui, sans-serif", weight: 700, style: 'normal', tracking: '-0.035em' },
+            { id: 'inter-tight', name: 'Inter Tight · baseline', family: "'Inter Tight', system-ui, sans-serif", weight: 800, style: 'normal', tracking: '-0.04em' },
+            { id: 'geist', name: 'Geist · modern grotesque', family: "'Geist', system-ui, sans-serif", weight: 800, style: 'normal', tracking: '-0.04em' },
+            { id: 'space-grotesk', name: 'Space Grotesk · technical', family: "'Space Grotesk', system-ui, sans-serif", weight: 700, style: 'normal', tracking: '-0.035em' },
+            { id: 'bricolage', name: 'Bricolage Grotesque · editorial', family: "'Bricolage Grotesque', system-ui, sans-serif", weight: 800, style: 'normal', tracking: '-0.035em' },
+            { id: 'general-sans', name: 'General Sans · humanist', family: "'General Sans', system-ui, sans-serif", weight: 700, style: 'normal', tracking: '-0.035em' },
+            { id: 'satoshi', name: 'Satoshi · refined grotesque', family: "'Satoshi', system-ui, sans-serif", weight: 900, style: 'normal', tracking: '-0.04em' },
+        ];
+
+        const fpList = document.getElementById('fp-list');
+        const fpPicker = document.getElementById('fontPicker');
+        const fpHandle = document.getElementById('fp-handle');
+        const fpClose = document.getElementById('fp-close');
+        const fpRoot = document.documentElement;
+
+        function applyFont(opt) {
+            fpRoot.style.setProperty('--font-display', opt.family);
+            fpRoot.style.setProperty('--font-display-weight', opt.weight);
+            fpRoot.style.setProperty('--font-display-style', opt.style);
+            fpRoot.style.setProperty('--font-display-tracking', opt.tracking);
+            document.querySelectorAll('.fp-opt').forEach(el => {
+                el.classList.toggle('is-active', el.dataset.id === opt.id);
+            });
+        }
+
+        FONT_OPTIONS.forEach((opt, i) => {
+            const btn = document.createElement('button');
+            btn.className = 'fp-opt' + (i === 0 ? ' is-active' : '');
+            btn.dataset.id = opt.id;
+            btn.innerHTML = `
+                <span class="fp-opt__name">${opt.name}</span>
+                <span class="fp-opt__sample" style="font-family:${opt.family}; font-weight:${opt.weight}; font-style:${opt.style}; letter-spacing:${opt.tracking};">Simulate the <em>economy</em>.</span>
+            `;
+            btn.addEventListener('click', () => applyFont(opt));
+            fpList.appendChild(btn);
+        });
+
+        fpHandle.addEventListener('click', () => {
+            fpPicker.classList.add('is-open');
+            fpHandle.style.display = 'none';
+        });
+        fpClose.addEventListener('click', () => {
+            fpPicker.classList.remove('is-open');
+            fpHandle.style.display = '';
+        });
+
+        // ── Pipeline viz: build agent grid (stage 2) and network nodes (stage 3) ──
+        (function() {
+            const grid = document.getElementById('vizAgents');
+            if (grid) {
+                for (let i = 0; i < 100; i++) {
+                    const d = document.createElement('div');
+                    const r = Math.random();
+                    if (r < 0.3) d.style.opacity = '0.18';
+                    else if (r < 0.55) d.style.opacity = '0.45';
+                    else if (r < 0.8) d.style.opacity = '0.75';
+                    else d.style.opacity = '1';
+                    grid.appendChild(d);
+                }
+            }
+            const net = document.getElementById('vizNet');
+            if (net) {
+                const ns = 'http://www.w3.org/2000/svg';
+                const N = 14;
+                const nodes = [];
+                for (let i = 0; i < N; i++) {
+                    nodes.push({
+                        x: 12 + Math.random() * 96,
+                        y: 12 + Math.random() * 96,
+                    });
+                }
+                // edges to nearest neighbors
+                for (let i = 0; i < N; i++) {
+                    const dists = nodes.map((n, j) => ({ j, d: (n.x - nodes[i].x) ** 2 + (n.y - nodes[i].y) ** 2 }))
+                        .filter(o => o.j !== i).sort((a, b) => a.d - b.d).slice(0, 2);
+                    dists.forEach(o => {
+                        const l = document.createElementNS(ns, 'line');
+                        l.setAttribute('x1', nodes[i].x);
+                        l.setAttribute('y1', nodes[i].y);
+                        l.setAttribute('x2', nodes[o.j].x);
+                        l.setAttribute('y2', nodes[o.j].y);
+                        net.appendChild(l);
+                    });
+                }
+                nodes.forEach((n, i) => {
+                    const c = document.createElementNS(ns, 'circle');
+                    c.setAttribute('cx', n.x);
+                    c.setAttribute('cy', n.y);
+                    c.setAttribute('r', i === 5 || i === 9 ? 3 : 2);
+                    net.appendChild(c);
+                });
+            }
+        })();
+    </script>
+</body>
+</html>
