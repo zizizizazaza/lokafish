@@ -128,12 +128,15 @@ function buildKgFromCustomGraph(graph, w, h) {
 }
 
 // ─── Node color palette (dark-theme optimized) ───────────────────────────
+// Catppuccin Mocha — pastel-on-dark palette, perceptually balanced.
+// Mirrors src/screens/kg-3d.js ENTITY_COLORS so the legend, the procedural
+// mock and the real Zep render all agree on hue.
 const DARK_ENTITY_COLORS = {
-  Person:      '#F87171',
-  Company:     '#60A5FA',
-  Entity:      '#34D399',
-  GovAgency:   '#A78BFA',
-  MediaOutlet: '#FBBF24',
+  Person:      '#F38BA8', // pink
+  Company:     '#89B4FA', // blue
+  Entity:      '#A6E3A1', // green
+  GovAgency:   '#CBA6F7', // mauve
+  MediaOutlet: '#F9E2AF', // yellow
 };
 
 function generateDenseKG(w, h) {

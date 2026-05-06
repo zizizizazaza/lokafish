@@ -1,4 +1,4 @@
-// Scenario screen — Lokafish Flow design (Stage 1)
+// Scenario screen — LokaWorld Flow design (Stage 1)
 // Conventional form: textarea + horizon/confidence selects + data-source
 // checkboxes + advanced disclosure + primary submit button. Right rail
 // shows clickable starter scenarios.

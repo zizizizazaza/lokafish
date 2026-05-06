@@ -1,4 +1,4 @@
-// Plan screen — Lokafish Flow design (Stage 2)
+// Plan screen — LokaWorld Flow design (Stage 2)
 // Thinking stream + skeleton-to-real plan steps + 3 participation modes
 // + run-mode segmented control + start/back buttons.
 

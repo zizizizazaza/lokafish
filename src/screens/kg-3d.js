@@ -19,19 +19,23 @@ import ForceGraph3D from '3d-force-graph';
 import SpriteText from 'three-spritetext';
 import { showNodeDetail } from '../components/agent-modal.js';
 
+// Catppuccin Mocha — perceptually balanced pastel palette, designed
+// specifically for dark backgrounds. Same lightness across hues so no
+// single color screams; harmonious as a set.
+// https://catppuccin.com/palette
 const ENTITY_COLORS = {
-  Person:      '#f87171',
-  Company:     '#60a5fa',
-  Entity:      '#34d399',
-  GovAgency:   '#a78bfa',
-  MediaOutlet: '#facc15',
-  Venue:       '#34d399',
-  Sector:      '#38bdf8',
-  Event:       '#a78bfa',
-  Policy:      '#f87171',
-  Asset:       '#eab308',
+  Person:      '#F38BA8', // pink — warm coral
+  Company:     '#89B4FA', // blue — clear sapphire
+  Entity:      '#A6E3A1', // green — mint
+  GovAgency:   '#CBA6F7', // mauve — refined purple
+  MediaOutlet: '#F9E2AF', // yellow — soft gold
+  Venue:       '#94E2D5', // teal — for venues, distinct from entity-green
+  Sector:      '#74C7EC', // sapphire
+  Event:       '#B4BEFE', // lavender
+  Policy:      '#FAB387', // peach
+  Asset:       '#F9E2AF',
 };
-const FALLBACK_COLOR = '#94a3b8';
+const FALLBACK_COLOR = '#A6ADC8'; // Catppuccin Subtext0 — neutral grey-blue
 
 function colorOf(node) {
   if (node.color && /^#[0-9a-f]{3,8}$/i.test(node.color)) return node.color;
@@ -71,7 +75,9 @@ export function mount3DGraph(container, modal, getData) {
   }
 
   const Graph = ForceGraph3D()(container)
-    .backgroundColor('#1a2238')
+    // Tinted dark slate — slight cool cast keeps it from looking like a
+    // black hole, still neutral enough that node colors stay accurate.
+    .backgroundColor('#14161D')
     .showNavInfo(false)
     // Disable per-node drag — text sprites have wide invisible hitboxes that
     // hijacked empty-space drags and stopped camera rotation. Click still
@@ -116,29 +122,40 @@ export function mount3DGraph(container, modal, getData) {
       sprite.position.set(0, sphereRadius + sprite.textHeight * 0.6 + 1.2, 0);
       return sprite;
     })
-    // Links: brighter when adjacent to the selected node, dim otherwise.
+    // Warm-white hairlines on the charcoal bg — visible enough to trace
+    // structure without competing with the colored nodes.
     .linkColor((l) => {
-      if (!selectedId) return 'rgba(180,190,210,0.22)';
-      const sId = l.source?.id ?? l.source;
-      const tId = l.target?.id ?? l.target;
-      if (sId === selectedId || tId === selectedId) return 'rgba(255,180,90,0.95)';
-      return 'rgba(180,190,210,0.06)';
+      // Edge palette also stays in Catppuccin: Subtext1 #BAC2DE for the
+      // ambient hairlines, Peach #FAB387 for selection / core highlight.
+      if (selectedId) {
+        const sId = l.source?.id ?? l.source;
+        const tId = l.target?.id ?? l.target;
+        if (sId === selectedId || tId === selectedId) return 'rgba(250,179,135,0.95)';
+        return 'rgba(186,194,222,0.06)';
+      }
+      if (l.coreLink) return 'rgba(250,179,135,0.7)';
+      return 'rgba(186,194,222,0.26)';
     })
     .linkWidth((l) => {
-      if (!selectedId) return 0.4;
-      const sId = l.source?.id ?? l.source;
-      const tId = l.target?.id ?? l.target;
-      return (sId === selectedId || tId === selectedId) ? 1.6 : 0.3;
+      if (selectedId) {
+        const sId = l.source?.id ?? l.source;
+        const tId = l.target?.id ?? l.target;
+        return (sId === selectedId || tId === selectedId) ? 1.6 : 0.3;
+      }
+      return l.coreLink ? 1.0 : 0.4;
     })
-    .linkOpacity(0.5)
+    .linkOpacity(0.85)
     .linkDirectionalParticles((l) => {
-      if (!selectedId) return 0;
-      const sId = l.source?.id ?? l.source;
-      const tId = l.target?.id ?? l.target;
-      return (sId === selectedId || tId === selectedId) ? 2 : 0;
+      if (selectedId) {
+        const sId = l.source?.id ?? l.source;
+        const tId = l.target?.id ?? l.target;
+        return (sId === selectedId || tId === selectedId) ? 2 : 0;
+      }
+      return l.coreLink ? 2 : 0;
     })
-    .linkDirectionalParticleWidth(1.4)
-    .linkDirectionalParticleColor(() => 'rgba(255,200,120,1)')
+    .linkDirectionalParticleWidth(1.6)
+    .linkDirectionalParticleSpeed((l) => l.coreLink && !selectedId ? 0.004 : 0.01)
+    .linkDirectionalParticleColor(() => 'rgba(252,217,180,1)')
     .onNodeClick((node) => {
       const original = lastNodes.find(n => n.id === node.id);
       if (original) showNodeDetail(modal, original, lastLinks, lastNodes);
@@ -175,24 +192,16 @@ export function mount3DGraph(container, modal, getData) {
   try {
     const renderer = Graph.renderer && Graph.renderer();
     if (renderer && renderer.setPixelRatio) {
-      // Hard-cap to 1 — even 1.5 × a 2k-wide panel × the post-processing
-      // composer's internal targets can blow past the 16384 GPU texture
-      // limit on retina displays and kill the WebGL context.
-      renderer.setPixelRatio(1);
-      // Re-trigger size sync so existing drawing buffer + render targets
-      // get reallocated at the new ratio (otherwise the original pre-cap
-      // buffer sticks around).
+      // Honour retina (cap at 2). Earlier the texture-overflow crash was
+      // misdiagnosed as a framebuffer issue and pixelRatio was clamped to
+      // 1 — that made everything render at half-res on retina and looked
+      // fuzzy. Real cause was SpriteText hub label canvas size; that's
+      // fixed elsewhere, so it's safe to render crisp again.
+      renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
       const w = container.clientWidth || 800;
       const h = container.clientHeight || 600;
       Graph.width(w);
       Graph.height(h);
-    }
-    // Also cap the post-processing composer's pixelRatio — it has its own
-    // ratio that defaults to renderer's and creates the giant render
-    // targets that were tripping the 16384 limit.
-    if (Graph.postProcessingComposer) {
-      const c = Graph.postProcessingComposer();
-      if (c && c.setPixelRatio) c.setPixelRatio(1);
     }
     // Recover from any later context loss (e.g. another tab steals the GPU).
     const dom = renderer && renderer.domElement;
@@ -236,11 +245,15 @@ export function mount3DGraph(container, modal, getData) {
     return force;
   }
   Graph.d3Force('bound', radialBound());
-  // Fit the view ONCE on first engine stop. After that the user owns the
-  // camera — re-fitting on every cooldown stomps on their drag/rotate.
+  // Fit the view ONCE on first engine stop AFTER the graph has nodes.
+  // Empty seed data also fires onEngineStop, so guard on length too —
+  // otherwise the flag is consumed by the empty seed and the real
+  // post-growth cool-down fit never happens.
   let didInitialFit = false;
   Graph.onEngineStop(() => {
     if (didInitialFit) return;
+    const d = Graph.graphData();
+    if (!d || !d.nodes || !d.nodes.length) return;
     didInitialFit = true;
     try { Graph.zoomToFit(800, 80); } catch (_) {}
   });
@@ -258,32 +271,99 @@ export function mount3DGraph(container, modal, getData) {
   Graph.graphData({ nodes: [], links: [] });
 
   function grow(opts = {}) {
-    const totalDuration = opts.totalDurationMs ?? 6000;
+    const totalDuration = opts.totalDurationMs ?? 9000;
 
     const data = getData();
     if (!data || !data.nodes || !data.nodes.length) return;
     lastNodes = data.nodes;
     lastLinks = data.edges;
 
+    // Pre-adapt + sort by degree so hubs appear first — looks more
+    // organic than a random sprinkle.
     const adapted = adapt(data.nodes, data.edges);
-    Graph.graphData(adapted);
+    const allNodes = adapted.nodes.slice()
+      .sort((a, b) => (b._deg || 0) - (a._deg || 0));
+    const allLinks = adapted.links;
 
-    // Auto-fit camera once the simulation cools.
-    setTimeout(() => {
-      try { Graph.zoomToFit(900, 60); } catch (_) {}
-    }, 2800);
+    // Each link has a "visible-at" index = the later of its two endpoints'
+    // ordering positions. The link can be drawn once we've added enough
+    // nodes to cover both ends.
+    const orderIdx = new Map(allNodes.map((n, i) => [n.id, i]));
+    const linkVisibleAt = allLinks.map(l => {
+      const sId = l.source?.id ?? l.source;
+      const tId = l.target?.id ?? l.target;
+      return Math.max(orderIdx.get(sId) ?? 0, orderIdx.get(tId) ?? 0);
+    });
 
-    if (!opts.onProgress) return;
-    const totalN = data.nodes.length;
-    const totalE = data.edges.length;
+    const totalN = allNodes.length;
+    // Reset the canvas before growth so a refresh re-runs the animation.
+    Graph.graphData({ nodes: [], links: [] });
+
+    // Batch — feeding graphData every frame thrashes the d3 simulation;
+    // ~60 batches across the duration is plenty smooth.
+    const minBatch = Math.max(6, Math.floor(totalN / 60));
     const start = performance.now();
+    let lastVisibleN = 0;
     let frameId = 0;
+
+    // Damp existing-node motion during growth: every graphData() flush
+    // reheats the d3 simulation to alpha=1, which is what makes the
+    // already-placed nodes shake. Higher alphaDecay calms each kick
+    // faster; higher velocityDecay adds friction so existing nodes barely
+    // move while new nodes still find their place.
+    const prevAlphaDecay = Graph.d3AlphaDecay && Graph.d3AlphaDecay();
+    const prevVelDecay   = Graph.d3VelocityDecay && Graph.d3VelocityDecay();
+    try {
+      Graph.d3AlphaDecay && Graph.d3AlphaDecay(0.12);
+      Graph.d3VelocityDecay && Graph.d3VelocityDecay(0.65);
+    } catch (_) {}
+
     function tick() {
       const elapsed = performance.now() - start;
       const p = Math.min(1, elapsed / totalDuration);
       const eased = 1 - Math.pow(1 - p, 3);
-      opts.onProgress(p, Math.round(totalN * eased), Math.round(totalE * eased));
-      if (p < 1) frameId = requestAnimationFrame(tick);
+      const target = Math.min(totalN, Math.ceil(totalN * eased));
+
+      const shouldFlush = (target - lastVisibleN >= minBatch) ||
+                          (p >= 1 && lastVisibleN < totalN);
+      if (shouldFlush) {
+        lastVisibleN = target;
+        const visibleNodes = allNodes.slice(0, target);
+        const maxIdx = target - 1;
+        const visibleLinks = allLinks.filter((_, i) => linkVisibleAt[i] <= maxIdx);
+        Graph.graphData({ nodes: visibleNodes, links: visibleLinks });
+        if (opts.onProgress) opts.onProgress(p, target, visibleLinks.length);
+      } else if (opts.onProgress) {
+        const cap = lastVisibleN - 1;
+        const visEdges = allLinks.filter((_, i) => linkVisibleAt[i] <= cap).length;
+        opts.onProgress(p, lastVisibleN, visEdges);
+      }
+
+      if (p < 1) {
+        frameId = requestAnimationFrame(tick);
+      } else {
+        // Growth done — restore default decay so the post-growth layout
+        // can relax + flag the hub-to-hub edges as "core" so the idle
+        // pulse / brighter line treatment kicks in.
+        setTimeout(() => {
+          try {
+            if (prevAlphaDecay !== undefined) Graph.d3AlphaDecay(prevAlphaDecay);
+            if (prevVelDecay   !== undefined) Graph.d3VelocityDecay(prevVelDecay);
+            // Mark hub-to-hub edges. After graphData() resolves, link
+            // source/target are full node refs carrying _deg.
+            for (const l of allLinks) {
+              const sDeg = (l.source && typeof l.source === 'object') ? (l.source._deg || 0) : 0;
+              const tDeg = (l.target && typeof l.target === 'object') ? (l.target._deg || 0) : 0;
+              l.coreLink = sDeg >= 8 && tDeg >= 8;
+            }
+            // Re-set the particle accessor so ForceGraph rebuilds the
+            // particle objects on edges that just got promoted.
+            Graph.linkDirectionalParticles(Graph.linkDirectionalParticles());
+            Graph.refresh && Graph.refresh();
+            Graph.d3ReheatSimulation && Graph.d3ReheatSimulation();
+          } catch (_) {}
+        }, 600);
+      }
     }
     frameId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frameId);

@@ -1,4 +1,4 @@
-// Landing — Lokafish Home v3 (editorial b&w + particle globe + ticker + pipeline)
+// Landing — LokaWorld Home v3 (editorial b&w + particle globe + ticker + pipeline)
 //
 // Self-contained module that returns the landing root <div>. Three.js is loaded
 // from a CDN <script> tag in index.html, so we read it from `window.THREE`.
@@ -66,7 +66,7 @@ export function createLanding(onStart) {
     <div class="lv3-root">
       <!-- nav -->
       <nav class="lv3-nav">
-        <div class="lv3-nav__brand">Lokafish</div>
+        <div class="lv3-nav__brand">LokaWorld</div>
         <button class="lv3-nav__cta" data-action="start">Start simulation →</button>
       </nav>
 
@@ -75,7 +75,6 @@ export function createLanding(onStart) {
         <div class="lv3-hero__left">
           <span class="lv3-hero__badge">World model · Economic simulation</span>
           <h1 class="lv3-hero__title">
-            <span class="lv3-hero__lead">Loka world model</span>
             Simulate the <em>economy</em>.
           </h1>
           <p class="lv3-hero__sub">
@@ -94,7 +93,6 @@ export function createLanding(onStart) {
             <div class="lv3-canvas-container"></div>
             <div class="lv3-aperture-overlay">
               <div class="lv3-aperture__brand">Loka World</div>
-              <div class="lv3-aperture__status">Swarm initializing…</div>
             </div>
           </div>
         </div>
@@ -262,7 +260,7 @@ export function createLanding(onStart) {
       </section>
 
       <footer class="lv3-foot">
-        <div>Lokafish · 2026</div>
+        <div>LokaWorld · 2026</div>
         <div>Self-hosted · open-source · agentic intelligence</div>
       </footer>
     </div>

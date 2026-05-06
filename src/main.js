@@ -11,7 +11,7 @@ const app = document.querySelector('#app');
 let currentScreen = 0;
 const screens = [];
 
-// Flow nav — matches the Lokafish Flow design (sentence-case step pills,
+// Flow nav — matches the LokaWorld Flow design (sentence-case step pills,
 // Inter Tight 13.6px, JetBrains Mono numerals). Brand collapses to "← back"
 // on every screen except Home.
 const navbar = document.createElement('nav');
@@ -20,7 +20,7 @@ navbar.innerHTML = `
   <div class="flow-nav__brand">
     <button type="button" class="flow-nav__brand-link" data-screen="0">
       <span class="flow-nav__brand-back">← back</span>
-      <span class="flow-nav__brand-name">Lokafish</span>
+      <span class="flow-nav__brand-name">LokaWorld</span>
     </button>
   </div>
   <div class="flow-nav__steps" id="nav-steps">
