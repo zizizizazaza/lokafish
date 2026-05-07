@@ -111,16 +111,69 @@ const NODE_TYPE_META = {
   },
 };
 
-// Seeded pseudo-random stat values per node
-function nodeStatValue(nodeId, idx) {
-  const seed = nodeId.charCodeAt(0) + nodeId.charCodeAt(nodeId.length - 1) + idx * 37;
-  return 42 + (seed * 1317) % 51; // 42–92
+// ── Per-node insights ────────────────────────────────────────────────────
+// Scenario-aware narrative for famous demo nodes. Keys are matched against
+// node.id (lowercase) first, then node.label (lowercase, partial). When a
+// match is found we use the custom headline instead of the generic
+// type-template — this is what makes the modal actually answer
+// "what is this node doing in MY scenario".
+const NODE_INSIGHTS = {
+  // Taylor Swift demo
+  'ts':         'The trigger event. Six SG-exclusive Eras Tour shows. Every downstream signal — bookings, prices, sentiment — originates here.',
+  'taylor':     'The trigger event. Six SG-exclusive Eras Tour shows. Every downstream signal — bookings, prices, sentiment — originates here.',
+  'sg':         'The host market. All economic effects roll up to this node — the simulation\'s root container for tax, FX, GDP, and sectoral output.',
+  'singapore':  'The host market. All economic effects roll up to this node — the simulation\'s root container for tax, FX, GDP, and sectoral output.',
+  'stb':        'Policy lever. Issued the S$3M grant that anchored the deal. Briefs media and routes the tourism narrative — its decisions cap or amplify supply.',
+  'mti':        'Macro oversight. Owns the GDP-impact narrative and approves cross-ministry coordination on visa, transport and labor rules.',
+  'venue':      'Throughput bottleneck. National Stadium\'s 55K capacity × 6 nights defines the hard ceiling on direct attendance and downstream spend.',
+  'fans':       'Demand engine. ~300K fans (70% inbound) drive every revenue line — hotels, F&B, retail, transport. Their mix of local vs overseas sets multiplier strength.',
+  'mbs':        'Largest single-property beneficiary. 2,560 rooms sold out at premium rates; concert week revenue ≈ S$8.2M incremental.',
+  'hotels':     'Supply-side multiplier. Occupancy 92.7% (vs 75% baseline), ADR +12.7% YoY. Its surge sets the benchmark for the whole hospitality sector.',
+  'changi':     'The inbound funnel. +20% arrival traffic vs same week 2023. Capacity here gates how much of the demand can actually reach the venue.',
+  'airlines':   'Cross-border carrier. Premium fares + capacity adds determine how price-elastic visitors get filtered in.',
+  'sia':        'Cross-border carrier. Premium fares + capacity adds determine how price-elastic visitors get filtered in.',
+  'airasia':    'Budget carrier. Routes the price-sensitive SEA demand segment that drove 462% accommodation booking growth from KL/Jakarta.',
+  'bloomberg':  'Institutional sentiment amplifier. One data-driven article reaches institutional desks; downstream effect on capital allocation is non-trivial.',
+  'cna':        'Regional storyteller. Shapes the "Swift Effect" narrative across APAC — directly credited with ~15% of post-event tourism uplift.',
+  'media':      'Sentiment loop. Coverage volume and tone modulate fan booking intent in real time — a single viral post can shift 3–8% of demand.',
+  'tiktok':     'Organic virality channel. Where the demand cascade actually compounds — every fan video raises ambient awareness for the next booking cohort.',
+  'fnb':        'Second-order beneficiary. Concert-week themed menus, extended hours, and surge staffing — the sector that absorbed the largest non-ticket spend.',
+  'retail':     'Orchard-belt uplift. Themed displays + tourist transit volume; estimated +S$45M incremental retail.',
+  'transport':  'Last-mile capacity. Surge pricing on Grab + MRT/SMRT crowd-control define how smoothly demand reaches the venue every night.',
+  'grab':       'Last-mile capacity. Surge pricing on Grab + MRT/SMRT crowd-control define how smoothly demand reaches the venue every night.',
+  'econ':       'Outcome aggregator. The sink node where every other agent\'s contribution rolls up into the headline GDP impact figure.',
+  'tax':        'Government revenue capture. Sales/tourism tax flow scaled to total spend — the policy ROI on the original grant.',
+  'forex':      'External pressure. SGD strength affects how much foreign demand actually clears — a watch-item more than a driver.',
+  'klook':      'Booking-platform proxy. Captures attraction & tour bookings (+2,373% vs control window).',
+  'shopee':     'E-commerce halo. Themed merch + pre-trip purchases — small absolute number, useful as a sentiment signal.',
+  'dbs':        'Payment rails. Card volume here is the cleanest real-time proxy for cross-border consumer spend during the window.',
+  'realestate': 'Hotel REITs reflect the supply side\'s monetisation of the surge — useful for the post-event ROI narrative.',
+  'labor':      'Bottleneck risk. Temp-staff demand spiked across hospitality + venue + transport — its tightness caps how much extra revenue the sector can capture.',
+  'sentosa':    'Spillover venue. Pre/post-concert tourist day-trips — small base, high % uplift.',
+};
+
+function getNodeInsight(node) {
+  const idKey = (node.id || '').toLowerCase();
+  if (NODE_INSIGHTS[idKey]) return NODE_INSIGHTS[idKey];
+  const labelKey = (node.label || '').toLowerCase();
+  if (NODE_INSIGHTS[labelKey]) return NODE_INSIGHTS[labelKey];
+  // Partial match against label tokens
+  for (const key of Object.keys(NODE_INSIGHTS)) {
+    if (labelKey.includes(key)) return NODE_INSIGHTS[key];
+  }
+  return null;
 }
+
+// Generic relationship labels we treat as low-information when ranking
+// the "key signal" — prefer edges with semantic verbs over these.
+const GENERIC_REL_LABELS = new Set([
+  'related to', 'connected to', 'linked to', 'associated with', 'connects to',
+]);
 
 export function showNodeDetail(overlay, node, edges, allNodes) {
   const modal = overlay.querySelector('#modal-content');
 
-  // Gather connections — edges are now {from, to, label} objects
+  // Gather connections — edges are {from, to, label} objects
   const connections = [];
   edges.forEach(edge => {
     if (edge.from === node.id) {
@@ -139,34 +192,88 @@ export function showNodeDetail(overlay, node, edges, allNodes) {
     seen.add(c.node.id); return true;
   });
 
-  // Group unique connections by type
-  const byType = {};
-  uniqueConns.forEach(c => {
-    if (!byType[c.node.type]) byType[c.node.type] = [];
-    byType[c.node.type].push(c);
+  // Rank: partner.size desc → semantic (non-generic) label first → label A→Z
+  const ranked = [...uniqueConns].sort((a, b) => {
+    const sa = a.node.size || 0, sb = b.node.size || 0;
+    if (sb !== sa) return sb - sa;
+    const ga = GENERIC_REL_LABELS.has((a.label || '').toLowerCase()) ? 1 : 0;
+    const gb = GENERIC_REL_LABELS.has((b.label || '').toLowerCase()) ? 1 : 0;
+    if (ga !== gb) return ga - gb;
+    return (a.node.label || '').localeCompare(b.node.label || '');
   });
 
-  // Use DiceBear for all real-name nodes; initials fallback for short IDs
+  // Distinct partner types — used as a real "type diversity" stat
+  const linkedTypes = new Set(uniqueConns.map(c => c.node.type)).size;
+
+  // Hub rank by degree across the whole graph (real, derived from edges)
+  const degree = new Map();
+  edges.forEach(e => {
+    degree.set(e.from, (degree.get(e.from) || 0) + 1);
+    degree.set(e.to,   (degree.get(e.to)   || 0) + 1);
+  });
+  const sortedDegrees = [...degree.entries()].sort((a, b) => b[1] - a[1]);
+  const rankIdx = sortedDegrees.findIndex(([id]) => id === node.id);
+  const hubRank = rankIdx >= 0 ? rankIdx + 1 : null;
+  const totalRanked = sortedDegrees.length || allNodes.length;
+
+  // Pick the single most informative edge: top-ranked partner with a
+  // non-generic label (falls back to top-ranked overall).
+  const keySignal = ranked.find(c => !GENERIC_REL_LABELS.has((c.label || '').toLowerCase())) || ranked[0] || null;
+
+  // Use DiceBear for real-name nodes; initials fallback for short IDs
   const nodeAvatar = node.id.length <= 3 && !node.id.startsWith('n')
     ? `<span style="font-size:10px;color:${node.color};font-weight:700;">${node.label.slice(0,2).toUpperCase()}</span>`
     : `<img src="https://api.dicebear.com/7.x/notionists/svg?seed=${encodeURIComponent(node.label)}" alt="${node.label}" style="width:100%;height:100%;border-radius:inherit;" />`;
 
-  const meta   = NODE_TYPE_META[node.type] || NODE_TYPE_META['Entity'];
-  const isCore = !node.id.startsWith('n');
+  const meta    = NODE_TYPE_META[node.type] || NODE_TYPE_META['Entity'];
+  const isCore  = !node.id.startsWith('n');
+  const insight = getNodeInsight(node);
 
-  // Simulate stats
-  const statValues = meta.stats.map((label, i) => ({
-    label,
-    value: nodeStatValue(node.id, i),
-  }));
+  // Connection list rendering — compact 2-col grid, filterable by direction & type
+  const VISIBLE = 8;
+  const renderConnRow = (c) => {
+    const tMeta = NODE_TYPE_META[c.node.type] || NODE_TYPE_META['Entity'];
+    return `
+    <div class="nmd-conn-row nmd-chip--clickable"
+      data-cname="${c.node.label.replace(/"/g,'&quot;')}"
+      data-ctype="${c.node.type}"
+      data-crel="${c.label.replace(/"/g,'&quot;')}"
+      data-cdir="${c.dir}"
+      data-ccolor="${c.node.color}">
+      <span class="nmd-conn-arrow" style="color:${c.node.color};">${c.dir === 'out' ? '→' : '←'}</span>
+      <span class="nmd-conn-body">
+        <span class="nmd-conn-name">
+          <span class="nmd-conn-icon" aria-hidden="true">${tMeta.icon}</span>
+          <span class="nmd-conn-label">${c.node.label}</span>
+        </span>
+        <span class="nmd-conn-rel" style="color:${c.node.color};">${c.label}</span>
+      </span>
+    </div>`;
+  };
 
-  // Derived econ weight (bigger nodes = higher weight)
-  const econWeight = Math.min(99, Math.round((node.size / 20) * 100));
+  const outConns = ranked.filter(c => c.dir === 'out');
+  const inConns  = ranked.filter(c => c.dir === 'in');
+
+  // Count by type for the type-filter pills (only show pills with >=1)
+  const typeCounts = {};
+  ranked.forEach(c => {
+    typeCounts[c.node.type] = (typeCounts[c.node.type] || 0) + 1;
+  });
+  // Stable order: Person, Company, Entity, GovAgency, MediaOutlet, then anything else
+  const TYPE_ORDER = ['Person', 'Company', 'Entity', 'GovAgency', 'MediaOutlet'];
+  const typeKeys = [
+    ...TYPE_ORDER.filter(t => typeCounts[t]),
+    ...Object.keys(typeCounts).filter(t => !TYPE_ORDER.includes(t)),
+  ];
+
+  const visibleRows = ranked.slice(0, VISIBLE).map(renderConnRow).join('');
+  const hiddenRows  = ranked.slice(VISIBLE).map(renderConnRow).join('');
+  const moreCount   = Math.max(0, ranked.length - VISIBLE);
 
   modal.innerHTML = `
     <div class="modal__close" id="modal-close">✕</div>
 
-    <!-- Header -->
+    <!-- 1. WHO — identity header -->
     <div class="nmd-header">
       <div class="nmd-avatar" style="background: ${node.color}20; border: 1.5px solid ${node.color}40;">
         ${nodeAvatar}
@@ -176,74 +283,59 @@ export function showNodeDetail(overlay, node, edges, allNodes) {
         <div class="nmd-role-tag" style="color:${node.color};">${meta.icon} ${meta.role}</div>
         <div style="display:flex;gap:5px;margin-top:4px;">
           <span class="badge" style="background:${node.color}2E;color:${node.color};border:1px solid ${node.color}55;font-weight:700;">${node.type}</span>
-          ${isCore ? `<span class="badge badge--blue" style="font-weight:700;">Core Node</span>` : ''}
+          ${isCore ? `<span class="badge badge--blue" style="font-weight:700;">Core node</span>` : ''}
         </div>
       </div>
       <div class="nmd-quickstats">
         <div class="nmd-qs"><div class="nmd-qs-val">${uniqueConns.length}</div><div class="nmd-qs-key">Connections</div></div>
-        <div class="nmd-qs"><div class="nmd-qs-val">${econWeight}%</div><div class="nmd-qs-key">Econ Weight</div></div>
-        <div class="nmd-qs"><div class="nmd-qs-val">${Math.round(node.size * 8)}</div><div class="nmd-qs-key">Influence pts</div></div>
+        <div class="nmd-qs"><div class="nmd-qs-val">${linkedTypes}</div><div class="nmd-qs-key">Linked types</div></div>
+        ${hubRank ? `<div class="nmd-qs"><div class="nmd-qs-val">#${hubRank}<span style="font-size:10px;opacity:.55;font-weight:500;">/${totalRanked}</span></div><div class="nmd-qs-key">Hub rank</div></div>` : ''}
       </div>
     </div>
 
-    <!-- What this node does -->
+    <!-- 2. ROLE — what this node does in THIS scenario -->
     <div class="nmd-explain">
       <div class="nmd-explain-badge">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-        How this node affects the simulation
+        Role in this scenario
       </div>
-      <div class="nmd-explain-text">${meta.desc(node.label)}</div>
-    </div>
-
-    <!-- Simulation metrics -->
-    <div class="nmd-metrics-grid">
-      ${statValues.map((s, i) => `
-        <div class="nmd-metric">
-          <div class="nmd-metric-bar-wrap">
-            <div class="nmd-metric-bar" style="width:${s.value}%;background:${node.color};"></div>
-          </div>
-          <div class="nmd-metric-row">
-            <span class="nmd-metric-label">${s.label}</span>
-            <span class="nmd-metric-val" style="color:${node.color};">${s.value}<span style="font-size:9px;opacity:0.55;font-weight:400;">/100</span></span>
-          </div>
+      <div class="nmd-explain-text">${insight || meta.desc(node.label)}</div>
+      ${keySignal ? `
+        <div class="nmd-keysignal" style="border-left-color:${node.color};">
+          <span class="nmd-keysignal-tag" style="color:${node.color};">Key signal</span>
+          <span style="opacity:.7;">${keySignal.dir === 'out' ? node.label : keySignal.node.label}</span>
+          <span style="color:${keySignal.node.color};font-weight:600;font-style:italic;margin:0 4px;">${keySignal.dir === 'out' ? '→' : '←'} ${keySignal.label} →</span>
+          <span style="font-weight:600;color:var(--nmd-text, var(--text-primary));">${keySignal.dir === 'out' ? keySignal.node.label : node.label}</span>
         </div>
-      `).join('')}
+      ` : ''}
     </div>
 
-    <!-- Simulate interaction CTA -->
-    <div class="nmd-simulate-row">
-      <button class="nmd-sim-btn" id="nmd-sim-btn">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        Simulate 1 Round Interaction
-      </button>
-      <div class="nmd-sim-result" id="nmd-sim-result" style="display:none;"></div>
-    </div>
-
-    <!-- Connected entities grouped by type with relationship labels -->
+    <!-- 3. WHO — ranked connections -->
     <div class="nmd-connections-section">
-      <div class="nmd-section-title">Connected Entities (${uniqueConns.length})</div>
-      <div class="nmd-connections-help">These nodes send or receive economic signals to/from <strong>${node.label}</strong> in each simulation round. Arrows show direction; labels show relationship type.</div>
-      ${Object.entries(byType).map(([type, conns]) => `
-        <div class="nmd-type-group">
-          <div class="nmd-type-label">${type} <span class="nmd-type-count">${conns.length}</span></div>
-          <div class="nmd-chips">
-            ${conns.slice(0, 24).map(c => `
-              <div class="nmd-chip nmd-chip--clickable"
-                style="border-color:${c.node.color}30;cursor:pointer;"
-                data-cname="${c.node.label.replace(/"/g,'&quot;')}"
-                data-ctype="${c.node.type}"
-                data-crel="${c.label.replace(/"/g,'&quot;')}"
-                data-cdir="${c.dir}"
-                data-ccolor="${c.node.color}">
-                <span class="nmd-chip-dot" style="background:${c.node.color};"></span>
-                <span class="nmd-chip-name">${c.node.label}</span>
-                <span class="nmd-chip-rel" style="color:${c.node.color};">${c.dir === 'out' ? '→' : '←'} ${c.label}</span>
-              </div>
-            `).join('')}
-            ${conns.length > 24 ? `<div class="nmd-chip nmd-chip--more">+${conns.length - 24} more</div>` : ''}
-          </div>
+      <div class="nmd-conn-head">
+        <div class="nmd-section-title">Connected entities</div>
+        <div class="nmd-conn-filters" role="tablist">
+          <button class="nmd-filter is-active" data-filter="all"  type="button">All <em>${uniqueConns.length}</em></button>
+          ${outConns.length ? `<button class="nmd-filter" data-filter="out" type="button">→ Out <em>${outConns.length}</em></button>` : ''}
+          ${inConns.length  ? `<button class="nmd-filter" data-filter="in"  type="button">← In  <em>${inConns.length}</em></button>` : ''}
         </div>
-      `).join('')}
+      </div>
+      <div class="nmd-connections-help">Ranked by partner influence. The verb after each row shows what kind of relationship it is.</div>
+      ${typeKeys.length > 1 ? `
+        <div class="nmd-type-filters" role="tablist">
+          <button class="nmd-tfilter is-active" data-type="all" type="button">All types</button>
+          ${typeKeys.map(t => {
+            const tm = NODE_TYPE_META[t] || NODE_TYPE_META['Entity'];
+            return `<button class="nmd-tfilter" data-type="${t}" type="button"><span class="nmd-tfilter-icon">${tm.icon}</span>${t}<em>${typeCounts[t]}</em></button>`;
+          }).join('')}
+        </div>
+      ` : ''}
+      <div class="nmd-conn-grid" id="nmd-conn-list">${visibleRows}</div>
+      ${moreCount > 0 ? `
+        <div class="nmd-conn-grid" id="nmd-conn-hidden" style="display:none;">${hiddenRows}</div>
+        <button id="nmd-conn-toggle" type="button">Show all ${uniqueConns.length} (+${moreCount})</button>
+      ` : ''}
+      <div class="nmd-conn-empty" id="nmd-conn-empty" style="display:none;">No connections match this filter.</div>
     </div>
   `;
 
@@ -251,15 +343,19 @@ export function showNodeDetail(overlay, node, edges, allNodes) {
   modal.querySelector('#modal-close').addEventListener('click', () => closeModal(overlay));
 
   // ── Chip click popover ─────────────────────────────────────────────────
-  let chipPop = modal.querySelector('.nmd-chip-popover');
+  // Append to overlay (full-viewport, position:fixed) instead of modal so
+  // it can never be clipped by the modal's scroll container.
+  let chipPop = overlay.querySelector('.nmd-chip-popover');
   if (!chipPop) {
     chipPop = document.createElement('div');
     chipPop.className = 'nmd-chip-popover';
     chipPop.style.display = 'none';
-    modal.appendChild(chipPop);
+    overlay.appendChild(chipPop);
   }
 
   function closePop() { chipPop.style.display = 'none'; }
+  // Don't let clicks inside the popover bubble up to modal/overlay close handlers.
+  chipPop.addEventListener('click', e => e.stopPropagation());
 
   modal.querySelectorAll('.nmd-chip--clickable').forEach(chip => {
     chip.addEventListener('click', e => {
@@ -290,16 +386,23 @@ export function showNodeDetail(overlay, node, edges, allNodes) {
         <div class="nmd-cpop-desc">${shortDesc}</div>
       `;
 
-      const chipRect  = chip.getBoundingClientRect();
-      const modalRect = modal.getBoundingClientRect();
-      const topInModal   = chipRect.bottom - modalRect.top + modal.scrollTop + 6;
-      let  leftInModal   = chipRect.left   - modalRect.left;
+      const chipRect = chip.getBoundingClientRect();
+      // Position with viewport coordinates — popover is fixed-position so
+      // it isn't bound by the modal's scroll container.
       chipPop.style.display = 'block';
       const popW = chipPop.offsetWidth || 280;
-      const maxLeft = modal.clientWidth - popW - 12;
-      leftInModal = Math.max(8, Math.min(leftInModal, maxLeft));
-      chipPop.style.top  = topInModal + 'px';
-      chipPop.style.left = leftInModal + 'px';
+      const popH = chipPop.offsetHeight || 120;
+      const margin = 8;
+      // Prefer below the chip; flip above if there isn't room.
+      let top = chipRect.bottom + 6;
+      if (top + popH > window.innerHeight - margin) {
+        top = Math.max(margin, chipRect.top - popH - 6);
+      }
+      let left = chipRect.left;
+      const maxLeft = window.innerWidth - popW - margin;
+      left = Math.max(margin, Math.min(left, maxLeft));
+      chipPop.style.top  = top  + 'px';
+      chipPop.style.left = left + 'px';
 
       chipPop.querySelector('.nmd-cpop-close').addEventListener('click', e2 => {
         e2.stopPropagation(); closePop();
@@ -309,38 +412,67 @@ export function showNodeDetail(overlay, node, edges, allNodes) {
 
   modal.addEventListener('click', () => closePop());
 
-  // Simulate interaction button
-  const simBtn    = modal.querySelector('#nmd-sim-btn');
-  const simResult = modal.querySelector('#nmd-sim-result');
-  const simTexts  = [
-    `📡 Round simulated: ${node.label} processed ${Math.floor(Math.random()*400+80)} agent interactions. Demand signal propagated to ${Math.floor(uniqueConns.length * 0.35)} downstream nodes. Estimated round contribution: S$${(Math.random()*4+0.5).toFixed(1)}M.`,
-    `🔁 Round output: ${node.label} transmitted behavioral signals across ${uniqueConns.length} edges. ${Math.floor(uniqueConns.length * 0.2)} agents updated spending intent. Net sentiment shift: +${(Math.random()*8+1).toFixed(1)}pp.`,
-    `📊 Simulation step: ${node.label} registered ${Math.floor(Math.random()*300+200)} inbound events. Economic multiplier applied: ${(Math.random()*0.6+1.6).toFixed(2)}×. Throughput within normal range.`,
-  ];
-  let simIdx = 0;
-  simBtn.addEventListener('click', () => {
-    closePop();
-    simResult.style.display = 'block';
-    simResult.textContent = '';
-    simResult.classList.add('nmd-sim-result--typing');
-    const text = simTexts[simIdx % simTexts.length];
-    simIdx++;
-    let i = 0;
-    simBtn.disabled = true;
-    simBtn.style.opacity = '0.5';
-    const interval = setInterval(() => {
-      simResult.textContent += text[i++];
-      if (i >= text.length) {
-        clearInterval(interval);
-        simBtn.disabled = false;
-        simBtn.style.opacity = '1';
-        simBtn.innerHTML = `
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          Simulate Next Round
-        `;
-      }
-    }, 18);
+  // ── Direction + type filters ───────────────────────────────────────────
+  const dirBtns    = modal.querySelectorAll('.nmd-filter');
+  const typeBtns   = modal.querySelectorAll('.nmd-tfilter');
+  const listEl     = modal.querySelector('#nmd-conn-list');
+  const hiddenBox  = modal.querySelector('#nmd-conn-hidden');
+  const toggleBtn  = modal.querySelector('#nmd-conn-toggle');
+  const emptyEl    = modal.querySelector('#nmd-conn-empty');
+
+  let dirFilter  = 'all';
+  let typeFilter = 'all';
+
+  function applyFilters() {
+    let shown = 0;
+    let hiddenShown = 0;
+    const apply = (root, isHidden) => {
+      if (!root) return 0;
+      let n = 0;
+      root.querySelectorAll('.nmd-conn-row').forEach(row => {
+        const dir = row.dataset.cdir;
+        const t   = row.dataset.ctype;
+        const ok = (dirFilter === 'all' || dir === dirFilter)
+                && (typeFilter === 'all' || t   === typeFilter);
+        row.style.display = ok ? '' : 'none';
+        if (ok) n++;
+      });
+      return n;
+    };
+    shown       = apply(listEl, false);
+    hiddenShown = apply(hiddenBox, true);
+    if (emptyEl) emptyEl.style.display = (shown + hiddenShown === 0) ? '' : 'none';
+  }
+
+  dirBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      dirBtns.forEach(b => b.classList.remove('is-active'));
+      btn.classList.add('is-active');
+      dirFilter = btn.dataset.filter;
+      applyFilters();
+    });
   });
+
+  typeBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      typeBtns.forEach(b => b.classList.remove('is-active'));
+      btn.classList.add('is-active');
+      typeFilter = btn.dataset.type;
+      applyFilters();
+    });
+  });
+
+  // ── "Show all" toggle for the connections list ─────────────────────────
+  if (toggleBtn && hiddenBox) {
+    let expanded = false;
+    toggleBtn.addEventListener('click', () => {
+      expanded = !expanded;
+      hiddenBox.style.display = expanded ? '' : 'none';
+      toggleBtn.textContent = expanded
+        ? 'Show fewer'
+        : `Show all ${uniqueConns.length} (+${moreCount})`;
+    });
+  }
 }
 
 

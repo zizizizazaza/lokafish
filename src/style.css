@@ -2134,225 +2134,420 @@ button { font-family: var(--font-sans); cursor: pointer; border: none; outline: 
 }
 
 /* ══════════════════════════════════════════════
-   NMD — Node detail modal (light Notion theme)
+   NMD — Node detail modal
+   Theme tokens scoped to #agent-modal so we can flip them in dark mode
+   without touching every rule below.
    ══════════════════════════════════════════════ */
 
-/* Inner modal — light card, no dark override */
+#agent-modal {
+  --nmd-surface: var(--bg-primary);
+  --nmd-surface-2: var(--bg-secondary);
+  --nmd-surface-3: var(--bg-tertiary);
+  --nmd-text: var(--text-primary);
+  --nmd-text-2: var(--text-secondary);
+  --nmd-text-muted: var(--text-muted);
+  --nmd-border: var(--border);
+  --nmd-border-strong: var(--border-strong);
+  --nmd-overlay-bg: rgba(15, 15, 15, 0.4);
+  --nmd-shadow: 0 24px 60px rgba(15, 15, 18, 0.18), 0 4px 12px rgba(15,15,18,0.06);
+  --nmd-pop-shadow: 0 12px 32px rgba(15,15,18,0.18), 0 2px 8px rgba(15,15,18,0.08);
+}
+/* Dark-mode tokens — flips the modal automatically when the body
+ * (set by the simulation stage) is in dark mode. */
+body.is-dark #agent-modal {
+  --nmd-surface:        #15151a;
+  --nmd-surface-2:      #1c1c22;
+  --nmd-surface-3:      #23232b;
+  --nmd-text:           #ececef;
+  --nmd-text-2:         rgba(236,236,239,0.72);
+  --nmd-text-muted:     rgba(236,236,239,0.46);
+  --nmd-border:         rgba(236,236,239,0.10);
+  --nmd-border-strong:  rgba(236,236,239,0.20);
+  --nmd-overlay-bg:     rgba(0,0,0,0.55);
+  --nmd-shadow:         0 24px 60px rgba(0,0,0,0.55), 0 4px 12px rgba(0,0,0,0.35);
+  --nmd-pop-shadow:     0 12px 32px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.35);
+}
+body.is-dark #agent-modal.modal-overlay { background: var(--nmd-overlay-bg); }
+
+/* Modal card — slightly tighter, plan-screen feel */
 #agent-modal .modal {
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  color: var(--text-primary);
-  max-width: 640px;
+  background: var(--nmd-surface);
+  border: 1px solid var(--nmd-border);
+  color: var(--nmd-text);
+  max-width: 600px;
   width: 92vw;
-  max-height: 88vh;
+  max-height: 86vh;
   overflow-y: auto;
+  padding: 0;
   scrollbar-width: thin;
-  scrollbar-color: var(--border-strong) transparent;
-  box-shadow: var(--shadow-lg);
+  scrollbar-color: var(--nmd-border-strong) transparent;
+  box-shadow: var(--nmd-shadow);
+  border-radius: 14px;
 }
 #agent-modal .modal::-webkit-scrollbar { width: 4px; }
-#agent-modal .modal::-webkit-scrollbar-thumb { background: rgba(55,53,47,0.10); border-radius: 2px; }
+#agent-modal .modal::-webkit-scrollbar-thumb {
+  background: var(--nmd-border-strong);
+  border-radius: 2px;
+}
 
-/* Header row */
+/* Header — plan-step style: tight rows, mono micro-meta on the right */
 .nmd-header {
   display: flex;
   align-items: flex-start;
   gap: 14px;
-  padding: 20px 20px 16px;
-  border-bottom: 1px solid var(--border);
+  padding: 22px 56px 18px 24px; /* extra right pad keeps stats clear of ✕ */
+  border-bottom: 1px solid var(--nmd-border);
 }
 .nmd-avatar {
-  width: 52px; height: 52px;
+  width: 44px; height: 44px;
   border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   flex-shrink: 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--nmd-border);
+  background: var(--nmd-surface-2);
 }
 .nmd-title-block { flex: 1; min-width: 0; }
 .nmd-label {
-  font-size: 17px;
+  font-size: 19px;
   font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.3px;
-  margin-bottom: 3px;
+  color: var(--nmd-text);
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  margin-bottom: 4px;
 }
 .nmd-role-tag {
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.2px;
-  margin-bottom: 4px;
+  letter-spacing: 0;
+  margin-bottom: 6px;
 }
 .nmd-quickstats {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: flex-end;
+  gap: 18px;
+  align-items: flex-start;
   flex-shrink: 0;
 }
 .nmd-qs { text-align: right; }
 .nmd-qs-val {
   font-family: var(--font-mono);
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--nmd-text);
   line-height: 1;
+  letter-spacing: -0.02em;
 }
 .nmd-qs-key {
-  font-size: 9px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-top: 1px;
+  font-size: 10px;
+  color: var(--nmd-text-muted);
+  letter-spacing: 0;
+  margin-top: 4px;
+  font-weight: 500;
 }
 
-/* Explanation block */
+/* Header badges — restyle */
+.nmd-header .badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+/* Insight / role section */
 .nmd-explain {
-  margin: 16px 20px;
-  padding: 12px 14px;
-  background: var(--blue-dim);
-  border: 1px solid rgba(35,131,226,0.18);
-  border-radius: var(--radius-md);
-  border-left: 3px solid var(--blue);
+  margin: 18px 24px 20px;
+  padding: 14px 16px;
+  background: var(--nmd-surface-2);
+  border: 1px solid var(--nmd-border);
+  border-radius: 10px;
+  border-left: 2px solid var(--blue);
+}
+body.is-dark #agent-modal .nmd-explain {
+  border-left-color: rgba(96,165,250,0.85);
 }
 .nmd-explain-badge {
   display: flex;
   align-items: center;
-  gap: 5px;
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--blue);
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  margin-bottom: 7px;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--nmd-text-muted);
+  letter-spacing: 0;
+  margin-bottom: 8px;
 }
 .nmd-explain-text {
-  font-size: 12.5px;
-  color: var(--text-secondary);
-  line-height: 1.75;
-}
-
-/* Metric bars */
-.nmd-metrics-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  padding: 0 20px 16px;
-}
-.nmd-metric {}
-.nmd-metric-bar-wrap {
-  height: 3px;
-  background: var(--bg-tertiary);
-  border-radius: 2px;
-  margin-bottom: 5px;
-  overflow: hidden;
-}
-.nmd-metric-bar {
-  height: 100%;
-  border-radius: 2px;
-  opacity: 0.75;
-  transition: width 0.8s ease;
-}
-.nmd-metric-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.nmd-metric-label {
-  font-size: 10px;
-  color: var(--text-muted);
-  font-weight: 500;
-}
-.nmd-metric-val {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--text-secondary);
-}
-
-/* Simulate button row */
-.nmd-simulate-row {
-  padding: 0 20px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.nmd-sim-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 14px;
-  background: var(--blue-dim);
-  border: 1px solid rgba(35,131,226,0.22);
-  border-radius: var(--radius-md);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--blue);
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-  font-family: var(--font-sans);
-  align-self: flex-start;
-}
-.nmd-sim-btn:hover:not(:disabled) {
-  background: rgba(35,131,226,0.12);
-  border-color: rgba(35,131,226,0.35);
-}
-.nmd-sim-result {
-  font-size: 12px;
-  color: var(--text-secondary);
+  font-size: 13.5px;
+  color: var(--nmd-text);
   line-height: 1.65;
-  padding: 10px 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  border-left: 3px solid var(--blue);
-  font-family: var(--font-mono);
-  min-height: 44px;
+  letter-spacing: -0.005em;
 }
-.nmd-sim-result--typing { animation: none; }
 
 /* Connected entities section */
 .nmd-connections-section {
-  padding: 14px 20px 20px;
-  border-top: 1px solid var(--border);
-  margin-top: 4px;
+  padding: 16px 24px 22px;
+  border-top: 1px solid var(--nmd-border);
 }
 .nmd-section-title {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--nmd-text);
+  letter-spacing: 0;
+  margin-bottom: 0;
 }
 .nmd-connections-help {
   font-size: 11.5px;
-  color: var(--text-secondary);
+  color: var(--nmd-text-2);
   line-height: 1.55;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
-.nmd-connections-help strong { color: var(--text-primary); font-weight: 600; }
+.nmd-connections-help strong { color: var(--nmd-text); font-weight: 600; }
 
-/* Type groups */
-.nmd-type-group { margin-bottom: 12px; }
-.nmd-type-label {
+/* Connection list head: title + direction filter pills */
+.nmd-conn-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.nmd-conn-filters {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  background: var(--nmd-surface-2);
+  border: 1px solid var(--nmd-border);
+  border-radius: 8px;
+}
+.nmd-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--nmd-text-2);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  font-family: inherit;
+}
+.nmd-filter em {
+  font-style: normal;
   font-size: 10px;
   font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  color: var(--nmd-text-muted);
+  font-family: var(--font-mono);
+}
+.nmd-filter:hover { color: var(--nmd-text); }
+.nmd-filter.is-active {
+  background: var(--nmd-surface);
+  color: var(--nmd-text);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+.nmd-filter.is-active em { color: var(--nmd-text); }
+
+/* Connection rows in 2-column grid */
+.nmd-conn-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+@media (max-width: 540px) {
+  .nmd-conn-grid { grid-template-columns: 1fr; }
+}
+
+.nmd-conn-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--nmd-border);
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  min-width: 0;
+}
+.nmd-conn-row:hover {
+  background: var(--nmd-surface-2);
+  border-color: var(--nmd-border-strong);
+}
+.nmd-conn-arrow {
+  font-size: 14px;
+  font-weight: 700;
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.nmd-conn-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.nmd-conn-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.nmd-conn-icon {
+  font-size: 12px;
+  line-height: 1;
+  flex-shrink: 0;
+  filter: grayscale(0.15);
+  opacity: 0.9;
+}
+.nmd-conn-name .nmd-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.nmd-conn-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--nmd-text);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.nmd-conn-rel {
+  font-size: 10.5px;
+  font-style: italic;
+  font-weight: 500;
+  margin-left: 18px; /* aligns under label, after icon */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* Type filter pills (Person / Company / Entity / ...) */
+.nmd-type-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.nmd-tfilter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--nmd-text-2);
+  background: transparent;
+  border: 1px solid var(--nmd-border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  font-family: inherit;
+  line-height: 1.2;
+}
+.nmd-tfilter-icon {
+  font-size: 12px;
+  line-height: 1;
+  filter: grayscale(0.15);
+}
+.nmd-tfilter em {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--nmd-text-muted);
+  font-family: var(--font-mono);
+  margin-left: 2px;
+}
+.nmd-tfilter:hover {
+  color: var(--nmd-text);
+  border-color: var(--nmd-border-strong);
+}
+.nmd-tfilter.is-active {
+  color: var(--nmd-text);
+  background: var(--nmd-surface-2);
+  border-color: var(--nmd-border-strong);
+}
+.nmd-tfilter.is-active em { color: var(--nmd-text); }
+
+/* Empty state when filters yield no rows */
+.nmd-conn-empty {
+  padding: 20px;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--nmd-text-muted);
+  background: var(--nmd-surface-2);
+  border: 1px dashed var(--nmd-border);
+  border-radius: 7px;
+  margin-top: 6px;
+}
+
+/* "Show all" toggle button */
+#nmd-conn-toggle {
+  margin-top: 10px;
+  padding: 8px 12px;
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--nmd-border);
+  border-radius: 7px;
+  color: var(--nmd-text-2);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  font-family: inherit;
+}
+#nmd-conn-toggle:hover {
+  background: var(--nmd-surface-2);
+  border-color: var(--nmd-border-strong);
+  color: var(--nmd-text);
+}
+
+/* Key signal callout in the role section */
+.nmd-keysignal {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: var(--nmd-surface);
+  border: 1px solid var(--nmd-border);
+  border-left: 2px solid var(--nmd-border-strong);
+  border-radius: 0 6px 6px 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+.nmd-keysignal-tag {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  margin-right: 6px;
+}
+
+/* Legacy chip group bits (defended for any code path that still emits them) */
+.nmd-type-group { margin-bottom: 12px; }
+.nmd-type-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--nmd-text-muted);
+  letter-spacing: 0;
   margin-bottom: 6px;
   display: flex;
   align-items: center;
   gap: 5px;
 }
 .nmd-type-count {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
+  background: var(--nmd-surface-3);
+  color: var(--nmd-text-2);
   padding: 1px 5px;
-  border-radius: var(--radius-sm);
+  border-radius: 4px;
   font-size: 9px;
   font-weight: 700;
 }
@@ -2366,21 +2561,21 @@ button { font-family: var(--font-sans); cursor: pointer; border: none; outline: 
   align-items: center;
   gap: 5px;
   padding: 3px 8px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  background: var(--nmd-surface);
+  border: 1px solid var(--nmd-border);
+  border-radius: 6px;
   font-size: 11px;
-  color: var(--text-secondary);
+  color: var(--nmd-text-2);
   cursor: default;
   transition: border-color 0.12s, background 0.12s;
 }
 .nmd-chip:hover {
-  background: var(--bg-hover);
-  border-color: var(--border-strong);
-  color: var(--text-primary);
+  background: var(--nmd-surface-2);
+  border-color: var(--nmd-border-strong);
+  color: var(--nmd-text);
 }
 .nmd-chip--more {
-  color: var(--text-muted);
+  color: var(--nmd-text-muted);
   border-style: dashed;
 }
 .nmd-chip-dot {
@@ -2398,24 +2593,22 @@ button { font-family: var(--font-sans); cursor: pointer; border: none; outline: 
   text-overflow: ellipsis;
 }
 .nmd-chip--clickable:hover {
-  background: var(--bg-secondary);
-  border-color: var(--border-strong) !important;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
-  transition: all 0.12s ease;
+  background: var(--nmd-surface-2);
+  border-color: var(--nmd-border-strong) !important;
 }
 
-/* ── Chip click popover ────────────────────────────────────── */
+/* ── Chip click popover (portaled to overlay, position:fixed) ── */
 .nmd-chip-popover {
-  position: absolute;
-  z-index: 10;
+  position: fixed;
+  z-index: 2100;
   width: 280px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-strong);
+  background: var(--nmd-surface);
+  border: 1px solid var(--nmd-border-strong);
   border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.07);
+  box-shadow: var(--nmd-pop-shadow);
   padding: 12px 14px;
   animation: cpop-in 0.15s ease;
+  color: var(--nmd-text);
 }
 @keyframes cpop-in {
   from { opacity: 0; transform: translateY(-4px); }
@@ -2435,7 +2628,7 @@ button { font-family: var(--font-sans); cursor: pointer; border: none; outline: 
 .nmd-cpop-name {
   font-size: 13px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--nmd-text);
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -2446,16 +2639,17 @@ button { font-family: var(--font-sans); cursor: pointer; border: none; outline: 
   font-size: 10px;
   font-weight: 600;
   padding: 2px 7px;
-  border-radius: 20px;
+  border-radius: 999px;
   white-space: nowrap;
   flex-shrink: 0;
+  font-family: var(--font-mono);
 }
 .nmd-cpop-close {
   width: 20px; height: 20px;
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--nmd-text-muted);
   background: transparent;
   border: none;
   cursor: pointer;
@@ -2464,47 +2658,61 @@ button { font-family: var(--font-sans); cursor: pointer; border: none; outline: 
   font-family: var(--font-sans);
   padding: 0;
 }
-.nmd-cpop-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+.nmd-cpop-close:hover {
+  background: var(--nmd-surface-2);
+  color: var(--nmd-text);
+}
 .nmd-cpop-rel {
   font-size: 11px;
-  color: var(--text-secondary);
-  background: var(--bg-secondary);
+  color: var(--nmd-text-2);
+  background: var(--nmd-surface-2);
   border-radius: 6px;
   padding: 7px 10px;
   margin-bottom: 9px;
   line-height: 1.5;
-  border-left: 2px solid var(--border-strong);
+  border-left: 2px solid var(--nmd-border-strong);
 }
 .nmd-cpop-arrow {
-  color: var(--text-muted);
+  color: var(--nmd-text-muted);
   font-size: 10px;
 }
 .nmd-cpop-desc {
   font-size: 11.5px;
-  color: var(--text-secondary);
+  color: var(--nmd-text-2);
   line-height: 1.65;
 }
 
-/* Modal close button — light style */
+/* Modal close button — themed */
 #agent-modal .modal__close {
   position: absolute;
   top: 14px; right: 16px;
-  width: 24px; height: 24px;
+  width: 26px; height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  background: var(--bg-tertiary);
-  color: var(--text-muted);
-  font-size: 12px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--nmd-text-muted);
+  font-size: 13px;
   cursor: pointer;
   transition: background 0.12s, color 0.12s;
   z-index: 2;
 }
 #agent-modal .modal__close:hover {
-  background: var(--red-dim);
-  color: var(--red);
+  background: var(--nmd-surface-2);
+  color: var(--nmd-text);
 }
+
+/* Dark-mode: reskin the agent (people) modal too — it shares the
+ * same overlay so its primitives need to flip when body.is-dark. */
+body.is-dark #agent-modal .modal__name,
+body.is-dark #agent-modal .modal__section-body,
+body.is-dark #agent-modal .modal__meta-row span:last-child,
+body.is-dark #agent-modal .modal__trait-label,
+body.is-dark #agent-modal .modal__trait-val { color: var(--nmd-text); }
+body.is-dark #agent-modal .modal__role { color: var(--nmd-text-2); }
+body.is-dark #agent-modal .modal__section-title { color: var(--nmd-text-muted); }
+body.is-dark #agent-modal .modal__trait-bar { background: var(--nmd-surface-3); }
 
 /* ======================================================
    KG LEGEND
