@@ -1,3 +1,6 @@
+import { createHomeDemo } from '../components/home-demo.js';
+import { openPilotForm } from '../components/pilot-form.js';
+
 // Landing — LokaWorld Home v3 (editorial b&w + particle globe + ticker + pipeline)
 //
 // Self-contained module that returns the landing root <div>. Three.js is loaded
@@ -81,7 +84,7 @@ export function createLanding(onStart) {
             Loka deploys <strong>thousands of autonomous AI agents</strong> against a real-world economic scenario, then returns <strong>institutional-grade quantitative simulations</strong> with confidence intervals — not text, but actionable numbers.
           </p>
           <div class="lv3-hero__cta-row">
-            <button class="lv3-btn lv3-btn--primary" data-action="start">Start simulation →</button>
+            <button class="lv3-btn lv3-btn--primary" data-action="pilot">Request a pilot →</button>
             <button class="lv3-btn lv3-btn--ghost" data-action="learn">Learn more ↓</button>
           </div>
         </div>
@@ -125,7 +128,7 @@ export function createLanding(onStart) {
       <section class="lv3-section lv3-section--pipe" id="how">
         <div class="lv3-pipe-head">
           <div class="lv3-pipe-head__left">
-            <span class="lv3-section__label">Fig. 01 · Architecture</span>
+            <span class="lv3-section__label">Fig. 03 · Architecture</span>
             <h2 class="lv3-section__title">From a sentence to a structured forecast — in five stages.</h2>
           </div>
           <div class="lv3-pipe-head__right">
@@ -238,7 +241,7 @@ export function createLanding(onStart) {
       <!-- PARTNERS -->
       <section class="lv3-section lv3-section--partners" id="partners">
         <div class="lv3-partners-head">
-          <span class="lv3-section__label">Fig. 02 · Ecosystem</span>
+          <span class="lv3-section__label">Fig. 04 · Ecosystem</span>
           <h2 class="lv3-section__title">Data infrastructure &amp; settlement partners.</h2>
           <p class="lv3-partners-head__desc">Loka integrates with leading data platforms and blockchain settlement layers for transparent, auditable simulations.</p>
         </div>
@@ -270,6 +273,16 @@ export function createLanding(onStart) {
   el.querySelectorAll('[data-action="start"]').forEach(btn => {
     btn.addEventListener('click', () => onStart && onStart());
   });
+  el.querySelectorAll('[data-action="pilot"]').forEach(btn => {
+    btn.addEventListener('click', openPilotForm);
+  });
+
+  // ─── Inject home demo (Fig. 02 · Live demo) between ticker and pipeline ───
+  const pipeSection = el.querySelector('.lv3-section--pipe');
+  if (pipeSection) {
+    const demo = createHomeDemo({ onStart });
+    pipeSection.parentNode.insertBefore(demo, pipeSection);
+  }
   el.querySelector('[data-action="learn"]')?.addEventListener('click', () => {
     el.querySelector('#how')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });

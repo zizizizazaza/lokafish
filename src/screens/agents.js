@@ -139,7 +139,7 @@ const DARK_ENTITY_COLORS = {
   MediaOutlet: '#F9E2AF', // yellow
 };
 
-function generateDenseKG(w, h) {
+export function generateDenseKG(w, h) {
   const coreNodes = [
     { id: 'ts',       label: 'Taylor Swift',    size: 20, color: '#F87171', type: 'Person',      fx: 0.50, fy: 0.32 },
     { id: 'sg',       label: 'Singapore',        size: 18, color: '#34D399', type: 'Entity',      fx: 0.32, fy: 0.50 },
